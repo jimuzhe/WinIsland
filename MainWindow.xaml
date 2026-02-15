@@ -38,10 +38,6 @@
                 DragLeave="DynamicIsland_DragLeave"
                 Drop="DynamicIsland_Drop">
 
-            <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="5" Opacity="0.5"/>
-            </Border.Effect>
-
             <Grid>
                 <Grid.Resources>
                     <Style x:Key="PlayerBtnStyle" TargetType="Button">
@@ -307,12 +303,12 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- 黑洞引力场背景 -->
-                    <Grid Width="60" Height="60" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid Width="96" Height="96" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Grid.RenderTransform>
-                            <ScaleTransform x:Name="BlackHoleScale" ScaleX="0" ScaleY="0" CenterX="30" CenterY="30"/>
+                            <ScaleTransform x:Name="BlackHoleScale" ScaleX="0" ScaleY="0" CenterX="48" CenterY="48"/>
                         </Grid.RenderTransform>
                          <!-- 外围吸积盘辉光 -->
-                        <Ellipse Width="60" Height="60">
+                        <Ellipse Width="96" Height="96">
                             <Ellipse.Fill>
                                 <RadialGradientBrush>
                                     <GradientStop Color="#4C00FFFF" Offset="0.5"/>
@@ -320,21 +316,21 @@
                                 </RadialGradientBrush>
                             </Ellipse.Fill>
                             <Ellipse.Effect>
-                                <BlurEffect Radius="10"/>
+                                <BlurEffect Radius="16"/>
                             </Ellipse.Effect>
                         </Ellipse>
                         
                         <!-- 视界 (事件视界) -->
-                        <Ellipse Width="40" Height="40" Fill="Black">
+                        <Ellipse Width="62" Height="62" Fill="Black">
                             <Ellipse.Effect>
-                                <DropShadowEffect Color="#8A2BE2" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/>
+                                <DropShadowEffect Color="#8A2BE2" BlurRadius="22" ShadowDepth="0" Opacity="0.85"/>
                             </Ellipse.Effect>
                         </Ellipse>
                         
                         <!-- 内部漩涡 -->
-                        <Path Data="M30,10 A20,20 0 1 1 10,30" Stroke="#8A2BE2" StrokeThickness="2" Opacity="0.8">
+                        <Path Data="M48,16 A32,32 0 1 1 16,48" Stroke="#8A2BE2" StrokeThickness="3" Opacity="0.85">
                             <Path.RenderTransform>
-                                <RotateTransform x:Name="VortexRotation" Angle="0" CenterX="30" CenterY="30"/>
+                                <RotateTransform x:Name="VortexRotation" Angle="0" CenterX="48" CenterY="48"/>
                             </Path.RenderTransform>
                         </Path>
                     </Grid>
@@ -344,27 +340,30 @@
                         <Grid.ToolTip>
                             <ToolTip Content="File Station: Drag out to retrieve files"/>
                         </Grid.ToolTip>
-                        
-                        <!-- 文件背景层 (模拟堆叠) -->
-                        <Border Width="24" Height="30" Background="#33FFFFFF" CornerRadius="4" Margin="4,0,0,4" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform>
-                                <RotateTransform Angle="10"/>
-                            </Border.RenderTransform>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左侧文件图标 -->
+                        <Border Width="36" Height="46" Background="White" CornerRadius="6" BorderBrush="#8A2BE2" BorderThickness="1">
+                            <Path Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" Fill="#8A2BE2" Stretch="Uniform" Margin="7"/>
                         </Border>
-                        
-                        <!-- 主文件图标 -->
-                        <Border Width="24" Height="30" Background="White" CornerRadius="4" BorderBrush="#8A2BE2" BorderThickness="1">
-                             <Path Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" Fill="#8A2BE2" Stretch="Uniform" Margin="4"/>
-                        </Border>
-                        
-                        <!-- 文件数量角标 -->
-                        <Border Background="Red" CornerRadius="7" Width="14" Height="14" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-5,-5,0">
-                            <TextBlock x:Name="FileCountText" Text="1" Foreground="White" FontSize="9" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                        </Border>
+
+                        <!-- 右侧文件信息 -->
+                        <TextBlock x:Name="FileSummaryText"
+                                   Grid.Column="1"
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="White"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   Text="xxx.png 等1个文件"/>
                     </Grid>
 
                     <!-- 拖拽提示文字 -->
-                    <TextBlock x:Name="DropHintText" Text="Drop to Store" Foreground="White" FontSize="12" FontWeight="SemiBold" Margin="0,40,0,0" Opacity="0" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="DropHintText" Text="Drop to Store" Foreground="White" FontSize="15" FontWeight="SemiBold" Margin="0,58,0,0" Opacity="0" HorizontalAlignment="Center"/>
                     
                 </Grid>
 
@@ -412,7 +411,7 @@
                 </Border>
 
                 <!-- 右侧信息与控制区 -->
-                <StackPanel x:Name="MainMediaArea" Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" Margin="12,4,14,0" MaxHeight="40">
+                <StackPanel x:Name="MainMediaArea" Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" VerticalAlignment="Top" Margin="12,4,14,0" MaxHeight="40">
                     <!-- 1. 歌曲信息 (紧凑/展开) -->
                     <StackPanel x:Name="InfoPanel" HorizontalAlignment="Left" VerticalAlignment="Center">
                         <TextBlock x:Name="SongTitle" Text="topx" Foreground="White" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>

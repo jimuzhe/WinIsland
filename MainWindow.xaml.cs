@@ -48,7 +48,7 @@ namespace WinIsland
         private string _lastLyricText = "";
         private bool _isLyricVisible = false;
         private readonly TimeSpan _lyricPollInterval = TimeSpan.FromMilliseconds(300);
-        private readonly TimeSpan _lyricTimelineOffset = TimeSpan.FromSeconds(1.4);
+        private readonly TimeSpan _lyricTimelineOffset = TimeSpan.FromSeconds(1.7);
         private Dictionary<string, List<TrackInfo>> _tracksByTitle;
         private DateTime _trackIndexLastWriteUtc = DateTime.MinValue;
         private string _currentLyricTrackId;
@@ -587,14 +587,7 @@ namespace WinIsland
             _notificationTimer.Stop();
             _notificationTimer.Start();
 
-            // 隐藏其他内容
-            AlbumCover.Visibility = Visibility.Collapsed;
-            AudioSourceBadge.Visibility = Visibility.Collapsed;
-            SongTitle.Visibility = Visibility.Collapsed;
-            SongLyricFull.Visibility = Visibility.Collapsed;
-            SongLyricPreview.Visibility = Visibility.Collapsed;
-            ControlPanel.Visibility = Visibility.Collapsed;
-            VisualizerContainer.Visibility = Visibility.Collapsed;
+            HideAllMediaElements();
 
             // 显示通知面板
             NotificationPanel.Visibility = Visibility.Visible;
@@ -795,21 +788,14 @@ namespace WinIsland
                 _isNotificationActive = true;
                 _notificationTimer.Stop(); // 停止其他通知的自动隐藏计时器
 
-                // 隐藏其他内容
-                AlbumCover.Visibility = Visibility.Collapsed;
-                AudioSourceBadge.Visibility = Visibility.Collapsed;
-                SongTitle.Visibility = Visibility.Collapsed;
-                SongLyricFull.Visibility = Visibility.Collapsed;
-                SongLyricPreview.Visibility = Visibility.Collapsed;
-                ControlPanel.Visibility = Visibility.Collapsed;
-                VisualizerContainer.Visibility = Visibility.Collapsed;
-                NotificationPanel.Visibility = Visibility.Collapsed;
-                TodoPanel.Visibility = Visibility.Collapsed;
-                FileStationPanel.Visibility = Visibility.Collapsed;
+                HideAllMediaElements();
 
                 // 显示喝水提醒
+                NotificationPanel.Visibility = Visibility.Collapsed;
                 DrinkWaterPanel.Visibility = Visibility.Visible;
                 DrinkWaterPanel.Opacity = 0;
+                TodoPanel.Visibility = Visibility.Collapsed;
+                FileStationPanel.Visibility = Visibility.Collapsed;
 
                 DynamicIsland.IsHitTestVisible = true; // 允许鼠标交互
                 SetClickThrough(false);
@@ -909,13 +895,8 @@ namespace WinIsland
                 _isNotificationActive = true;
                 _notificationTimer.Stop();
 
-                AlbumCover.Visibility = Visibility.Collapsed;
-                AudioSourceBadge.Visibility = Visibility.Collapsed;
-                SongTitle.Visibility = Visibility.Collapsed;
-                SongLyricFull.Visibility = Visibility.Collapsed;
-                SongLyricPreview.Visibility = Visibility.Collapsed;
-                ControlPanel.Visibility = Visibility.Collapsed;
-                VisualizerContainer.Visibility = Visibility.Collapsed;
+                HideAllMediaElements();
+
                 NotificationPanel.Visibility = Visibility.Collapsed;
                 DrinkWaterPanel.Visibility = Visibility.Collapsed;
                 FileStationPanel.Visibility = Visibility.Collapsed;
@@ -1100,7 +1081,7 @@ namespace WinIsland
                     var session = GetPreferredSession();
                     if (session == null)
                     {
-                        if (!_isNotificationActive && !_isFileStationActive && _storedFiles.Count == 0)
+                        if (!IsMediaSuppressed())
                         {
                             EnterStandbyMode();
                         }
@@ -1252,16 +1233,7 @@ namespace WinIsland
             
             Dispatcher.Invoke(() =>
             {
-                ControlPanel.Visibility = Visibility.Collapsed;
-                ProgressArea.Visibility = Visibility.Collapsed;
-                ArtistName.Visibility = Visibility.Collapsed;
-                ArtistName.Text = "";
-                VisualizerContainer.Visibility = Visibility.Collapsed;
-                AlbumCover.Visibility = Visibility.Collapsed;
-                AudioSourceBadge.Visibility = Visibility.Collapsed;
-                SongTitle.Visibility = Visibility.Visible; // 确保控件存在
-                SongTitle.Text = ""; 
-                ResetLyricState();
+                HideAllMediaElements();
                 NotificationPanel.Visibility = Visibility.Collapsed;
                 DrinkWaterPanel.Visibility = Visibility.Collapsed;
                 TodoPanel.Visibility = Visibility.Collapsed;
@@ -1282,11 +1254,22 @@ namespace WinIsland
         {
             var oldTargetW = _widthSpring.Target;
             var oldTargetH = _heightSpring.Target;
+            var settings = GetSettings();
+            var reduceWidth = settings.ShowVisualizer ? 0 : 40;
 
             if (showMedia)
             {
-                _widthSpring.Target = _isExpanded ? 360 : (hasLyric ? 260 : 200);
-                _heightSpring.Target = _isExpanded ? 112 : 48;
+                if (_isExpanded)
+                {
+                    _widthSpring.Target = 360;
+                    _heightSpring.Target = 112;
+                }
+                else
+                {
+                    var baseWidth = hasLyric ? 260 : 200;
+                    _widthSpring.Target = Math.Max(160, baseWidth - reduceWidth);
+                    _heightSpring.Target = 48;
+                }
             }
             else
             {
@@ -1594,6 +1577,7 @@ namespace WinIsland
             AlbumCover.Margin = new Thickness(10, 4, 0, 0);
             UpdateAudioSourceBadgePosition(40, AlbumCover.Margin);
             MainMediaArea.MaxHeight = 40;
+            MainMediaArea.Margin = new Thickness(12, 0, 14, 0);
             AudioSourceBadge.Visibility = Visibility.Collapsed;
             UpdateCompactVerticalAlignment();
 
@@ -1603,6 +1587,24 @@ namespace WinIsland
                 : Visibility.Collapsed;
 
             RefreshCompactMediaText();
+        }
+
+        private bool IsMediaSuppressed()
+        {
+            return _isNotificationActive || _isFileStationActive || _storedFiles.Count > 0;
+        }
+
+        private void HideAllMediaElements()
+        {
+            AlbumCover.Visibility = Visibility.Collapsed;
+            AudioSourceBadge.Visibility = Visibility.Collapsed;
+            SongTitle.Visibility = Visibility.Collapsed;
+            ArtistName.Visibility = Visibility.Collapsed;
+            SongLyricPreview.Visibility = Visibility.Collapsed;
+            SongLyricFull.Visibility = Visibility.Collapsed;
+            ProgressArea.Visibility = Visibility.Collapsed;
+            ControlPanel.Visibility = Visibility.Collapsed;
+            VisualizerContainer.Visibility = Visibility.Collapsed;
         }
 
         private void ApplyLyricText(string lyricText, bool showMedia)
@@ -1959,7 +1961,7 @@ namespace WinIsland
         private async Task TryUpdateLyricLineAsync(GlobalSystemMediaTransportControlsSession session)
         {
             if (session == null) return;
-            if (_isNotificationActive) return;
+            if (IsMediaSuppressed()) return;
             if (ShouldSuppressMediaForManualStandby(session))
             {
                 ApplyLyricText("", false);
@@ -2069,7 +2071,7 @@ namespace WinIsland
 
         private async Task UpdateMediaInfo(GlobalSystemMediaTransportControlsSession session)
         {
-            if (_isNotificationActive) return;
+            if (IsMediaSuppressed()) return;
             if (ShouldSuppressMediaForManualStandby(session))
             {
                 EnterStandbyMode();
@@ -2531,6 +2533,7 @@ namespace WinIsland
             AlbumCover.Margin = expandedCoverMargin;
             UpdateAudioSourceBadgePosition(expandedCoverSize, expandedCoverMargin);
             MainMediaArea.MaxHeight = expandedCoverSize;
+            MainMediaArea.Margin = new Thickness(12, 4, 14, 0);
             MainMediaArea.VerticalAlignment = VerticalAlignment.Top;
             AudioSourceBadge.Visibility = Visibility.Visible;
 
@@ -2766,12 +2769,7 @@ namespace WinIsland
 
         private void EnterFileStationMode(bool dragging)
         {
-            // 隐藏其他面板
-            AlbumCover.Visibility = Visibility.Collapsed;
-            AudioSourceBadge.Visibility = Visibility.Collapsed;
-            SongTitle.Visibility = Visibility.Collapsed;
-            ControlPanel.Visibility = Visibility.Collapsed;
-            VisualizerContainer.Visibility = Visibility.Collapsed;
+            HideAllMediaElements();
             NotificationPanel.Visibility = Visibility.Collapsed;
             DrinkWaterPanel.Visibility = Visibility.Collapsed;
             TodoPanel.Visibility = Visibility.Collapsed;
@@ -2784,8 +2782,8 @@ namespace WinIsland
             if (dragging)
             {
                 // 拖拽进入时：黑洞张开
-                _widthSpring.Target = 260;
-                _heightSpring.Target = 60;
+                _widthSpring.Target = 420;
+                _heightSpring.Target = 130;
                 
                 DropHintText.Opacity = 1;
                 FileStackDisplay.Visibility = Visibility.Collapsed;
@@ -2808,12 +2806,7 @@ namespace WinIsland
 
         private void ShowFileStationState()
         {
-             // 隐藏其他面板确保安全
-            AlbumCover.Visibility = Visibility.Collapsed;
-            AudioSourceBadge.Visibility = Visibility.Collapsed;
-            SongTitle.Visibility = Visibility.Collapsed;
-            ControlPanel.Visibility = Visibility.Collapsed;
-            VisualizerContainer.Visibility = Visibility.Collapsed;
+            HideAllMediaElements();
             NotificationPanel.Visibility = Visibility.Collapsed;
             DrinkWaterPanel.Visibility = Visibility.Collapsed;
             TodoPanel.Visibility = Visibility.Collapsed;
@@ -2831,15 +2824,63 @@ namespace WinIsland
             FileStackDisplay.Visibility = Visibility.Visible;
             UpdateFileStationUI();
 
-            _widthSpring.Target = 100; // 紧凑宽度
-            _heightSpring.Target = 35; // 标准高度
+            _heightSpring.Target = 72;
             DynamicIsland.Opacity = GetActiveOpacity();
             SetClickThrough(false);
         }
 
         private void UpdateFileStationUI()
         {
-             FileCountText.Text = _storedFiles.Count.ToString();
+            if (FileSummaryText == null) return;
+
+            var count = _storedFiles.Count;
+            if (count <= 0)
+            {
+                FileSummaryText.Text = "暂无文件";
+                UpdateFileStationSizeByText(FileSummaryText.Text);
+                return;
+            }
+
+            var firstName = System.IO.Path.GetFileName(_storedFiles[0]);
+            if (string.IsNullOrWhiteSpace(firstName))
+            {
+                firstName = "未知文件";
+            }
+
+            FileSummaryText.Text = count == 1
+                ? firstName
+                : $"{firstName} 等{count}个文件";
+
+            UpdateFileStationSizeByText(FileSummaryText.Text);
+        }
+
+        private void UpdateFileStationSizeByText(string summary)
+        {
+            try
+            {
+                var text = summary ?? "";
+                var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+                var formatted = new FormattedText(
+                    text,
+                    CultureInfo.CurrentUICulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(
+                        FileSummaryText.FontFamily,
+                        FileSummaryText.FontStyle,
+                        FileSummaryText.FontWeight,
+                        FileSummaryText.FontStretch),
+                    FileSummaryText.FontSize,
+                    System.Windows.Media.Brushes.White,
+                    dpi);
+
+                // 计算：左右内边距 + 图标宽 + 图标与文本间距 + 文本宽度 + 右安全边距
+                var targetWidth = 24 + 36 + 10 + formatted.WidthIncludingTrailingWhitespace + 24;
+                _widthSpring.Target = Math.Clamp(targetWidth, 180, 560);
+            }
+            catch
+            {
+                _widthSpring.Target = 320;
+            }
         }
 
         private void PlayBlackHoleSuckAnimation()
