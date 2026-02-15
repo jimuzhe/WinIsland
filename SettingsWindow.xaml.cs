@@ -6,13 +6,18 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using MessageBox = System.Windows.MessageBox;
+using Application = System.Windows.Application;
 
 namespace WinIsland
 {
     public partial class SettingsWindow : Window
     {
+        private bool _isLoading;
+
         public SettingsWindow()
         {
+            _isLoading = true;
             InitializeComponent();
             LoadSettings();
         }
@@ -25,10 +30,17 @@ namespace WinIsland
 
         private void LoadSettings()
         {
+            _isLoading = true;
             var settings = AppSettings.Load();
             
             // 系统设置
             ChkStartWithWindows.IsChecked = IsStartupEnabled();
+            ChkBluetoothNotification.IsChecked = settings.BluetoothNotificationEnabled;
+            ChkUsbNotification.IsChecked = settings.UsbNotificationEnabled;
+            ChkMessageNotification.IsChecked = settings.MessageNotificationEnabled;
+            ChkShowMediaPlayer.IsChecked = settings.ShowMediaPlayer;
+            ChkShowVisualizer.IsChecked = settings.ShowVisualizer;
+            SldIslandOpacity.Value = Math.Clamp(settings.IslandOpacity, 0.2, 1.0);
 
             // 喝水提醒
             ChkDrinkWater.IsChecked = settings.DrinkWaterEnabled;
@@ -50,15 +62,24 @@ namespace WinIsland
             
             UpdateDrinkWaterUI();
             UpdateTodoUI();
+            _isLoading = false;
         }
 
-        private void Save_Click(object sender, RoutedEventArgs e)
+        private void SaveSettings()
         {
+            if (_isLoading) return;
+
             // 系统自启动
             if (ChkStartWithWindows.IsChecked == true) EnableStartup();
             else DisableStartup();
 
             var settings = AppSettings.Load();
+            settings.BluetoothNotificationEnabled = ChkBluetoothNotification.IsChecked == true;
+            settings.UsbNotificationEnabled = ChkUsbNotification.IsChecked == true;
+            settings.MessageNotificationEnabled = ChkMessageNotification.IsChecked == true;
+            settings.ShowMediaPlayer = ChkShowMediaPlayer.IsChecked == true;
+            settings.ShowVisualizer = ChkShowVisualizer.IsChecked == true;
+            settings.IslandOpacity = Math.Clamp(SldIslandOpacity.Value, 0.2, 1.0);
             
             // 喝水提醒
             settings.DrinkWaterEnabled = ChkDrinkWater.IsChecked == true;
@@ -66,8 +87,8 @@ namespace WinIsland
             {
                 settings.DrinkWaterIntervalMinutes = Math.Max(1, interval);
             }
-            settings.DrinkWaterStartTime = TxtDrinkStartTime.Text;
-            settings.DrinkWaterEndTime = TxtDrinkEndTime.Text;
+            if (TimeSpan.TryParse(TxtDrinkStartTime.Text, out _)) settings.DrinkWaterStartTime = TxtDrinkStartTime.Text;
+            if (TimeSpan.TryParse(TxtDrinkEndTime.Text, out _)) settings.DrinkWaterEndTime = TxtDrinkEndTime.Text;
             settings.DrinkWaterMode = RbModeCustom.IsChecked == true ? DrinkWaterMode.Custom : DrinkWaterMode.Interval;
             
             // 待办事项
@@ -76,12 +97,7 @@ namespace WinIsland
             settings.Save();
 
             // 通知主窗口重新加载设置
-            if (Application.Current.MainWindow is MainWindow mw)
-            {
-                mw.ReloadSettings();
-            }
-
-            Close();
+            NotifyMainWindowReload();
         }
 
         private void Cancel_Click(object sender, RoutedEventArgs e)
@@ -89,12 +105,35 @@ namespace WinIsland
             Close();
         }
 
+        private void AutoSave_Changed(object sender, RoutedEventArgs e) => SaveSettings();
+
+        private void AutoSave_LostFocus(object sender, RoutedEventArgs e) => SaveSettings();
+
+        private void Nav_Checked(object sender, RoutedEventArgs e)
+        {
+            if (sender is not RadioButton rb || rb.Tag is not string target) return;
+
+            PanelNotify.Visibility = target == "PanelNotify" ? Visibility.Visible : Visibility.Collapsed;
+            PanelMedia.Visibility = target == "PanelMedia" ? Visibility.Visible : Visibility.Collapsed;
+            PanelAppearance.Visibility = target == "PanelAppearance" ? Visibility.Visible : Visibility.Collapsed;
+            PanelSystem.Visibility = target == "PanelSystem" ? Visibility.Visible : Visibility.Collapsed;
+            PanelHealth.Visibility = target == "PanelHealth" ? Visibility.Visible : Visibility.Collapsed;
+            PanelTodo.Visibility = target == "PanelTodo" ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void SldIslandOpacity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtIslandOpacityValue == null) return;
+            TxtIslandOpacityValue.Text = $"{Math.Round(e.NewValue * 100):0}%";
+            SaveSettings();
+        }
+
         private bool IsStartupEnabled()
         {
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false);
-                return key?.GetValue("WinIsland") != null;
+                return key?.GetValue("topx") != null;
             }
             catch { return false; }
         }
@@ -104,7 +143,7 @@ namespace WinIsland
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
-                key?.SetValue("WinIsland", System.Reflection.Assembly.GetExecutingAssembly().Location);
+                key?.SetValue("topx", System.Reflection.Assembly.GetExecutingAssembly().Location);
             }
             catch (Exception ex)
             {
@@ -117,14 +156,28 @@ namespace WinIsland
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
-                key?.DeleteValue("WinIsland", false);
+                key?.DeleteValue("topx", false);
             }
             catch { }
         }
 
-        private void ChkDrinkWater_Checked(object sender, RoutedEventArgs e) => UpdateDrinkWaterUI();
-        private void ChkDrinkWater_Unchecked(object sender, RoutedEventArgs e) => UpdateDrinkWaterUI();
-        private void RbMode_Checked(object sender, RoutedEventArgs e) => UpdateDrinkWaterUI();
+        private void ChkDrinkWater_Checked(object sender, RoutedEventArgs e)
+        {
+            UpdateDrinkWaterUI();
+            SaveSettings();
+        }
+
+        private void ChkDrinkWater_Unchecked(object sender, RoutedEventArgs e)
+        {
+            UpdateDrinkWaterUI();
+            SaveSettings();
+        }
+
+        private void RbMode_Checked(object sender, RoutedEventArgs e)
+        {
+            UpdateDrinkWaterUI();
+            SaveSettings();
+        }
 
         private void UpdateDrinkWaterUI()
         {
@@ -150,13 +203,22 @@ namespace WinIsland
             }
         }
 
-        private void ChkTodo_Checked(object sender, RoutedEventArgs e) => UpdateTodoUI();
-        private void ChkTodo_Unchecked(object sender, RoutedEventArgs e) => UpdateTodoUI();
+        private void ChkTodo_Checked(object sender, RoutedEventArgs e)
+        {
+            UpdateTodoUI();
+            SaveSettings();
+        }
+
+        private void ChkTodo_Unchecked(object sender, RoutedEventArgs e)
+        {
+            UpdateTodoUI();
+            SaveSettings();
+        }
 
         private void UpdateTodoUI()
         {
-            if (PanelTodo == null) return;
-            PanelTodo.Visibility = ChkTodo.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            if (PanelTodoSettings == null) return;
+            PanelTodoSettings.Visibility = ChkTodo.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // --- 自定义时间逻辑 ---
@@ -171,8 +233,6 @@ namespace WinIsland
                 MessageBox.Show("时间格式错误，请使用 HH:MM");
                 return;
             }
-
-            var settings = AppSettings.Load(); 
 
             // 重新加载以进行修改
             var currentList = (List<string>)ListCustomDrinkTimes.ItemsSource ?? new List<string>();
@@ -189,6 +249,7 @@ namespace WinIsland
                 var s = AppSettings.Load();
                 s.CustomDrinkWaterTimes = currentList;
                 s.Save();
+                NotifyMainWindowReload();
             }
             
             TxtCustomDrinkTime.Text = "";
@@ -207,6 +268,7 @@ namespace WinIsland
                     var s = AppSettings.Load();
                     s.CustomDrinkWaterTimes = currentList;
                     s.Save();
+                    NotifyMainWindowReload();
                 }
             }
         }
@@ -239,6 +301,7 @@ namespace WinIsland
             var s = AppSettings.Load();
             s.TodoList = currentList;
             s.Save();
+            NotifyMainWindowReload();
 
             TxtTodoContent.Text = "";
         }
@@ -259,11 +322,20 @@ namespace WinIsland
                     var s = AppSettings.Load();
                     s.TodoList = currentList;
                     s.Save();
+                    NotifyMainWindowReload();
                 }
             }
         }
 
         // --- 辅助方法 ---
+
+        private void NotifyMainWindowReload()
+        {
+            if (Application.Current.MainWindow is MainWindow mw)
+            {
+                mw.ReloadSettings();
+            }
+        }
 
         private bool TryParseTime(string input, out string formattedTime)
         {

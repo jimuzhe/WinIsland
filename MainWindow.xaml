@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="WinIsland" 
+        Title="topx" 
         Icon="ico.ico"
         Height="200" Width="800"
         WindowStyle="None" 
@@ -21,12 +21,15 @@
     <Grid>
         <Border x:Name="DynamicIsland"
                 Width="120" Height="35"
-                CornerRadius="17.5"
+                CornerRadius="0,0,10.5,10.5"
                 Background="Black"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Top"
-                Margin="0,10,0,0"
+                Margin="0,0,0,0"
                 MouseDown="DynamicIsland_MouseDown"
+                MouseMove="DynamicIsland_MouseMove"
+                MouseLeftButtonUp="DynamicIsland_MouseLeftButtonUp"
+                MouseRightButtonUp="DynamicIsland_MouseRightButtonUp"
                 MouseEnter="DynamicIsland_MouseEnter"
                 MouseLeave="DynamicIsland_MouseLeave"
                 AllowDrop="True"
@@ -65,15 +68,19 @@
                     </Style>
                 </Grid.Resources>
 
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/> <!-- Row 0: Media controls & Info (Auto to support expansion) -->
+                    <RowDefinition Height="Auto"/> <!-- Row 1: Lyrics -->
+                </Grid.RowDefinitions>
+
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/> <!-- 0: Album Cover -->
+                    <ColumnDefinition Width="*"/>    <!-- 1: Main Content (Title, Preview, Controls, Full Lyric) -->
+                    <ColumnDefinition Width="Auto"/> <!-- 2: Visualizer -->
                 </Grid.ColumnDefinitions>
 
                 <!-- 通知区域 -->
-                <StackPanel x:Name="NotificationPanel" Grid.Column="0" Grid.ColumnSpan="4" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
+                <StackPanel x:Name="NotificationPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
                     <Grid Width="24" Height="24" Margin="0,0,12,0" RenderTransformOrigin="0.5,0.5">
                         <Grid.RenderTransform>
                             <ScaleTransform x:Name="NotificationIconScale" ScaleX="1" ScaleY="1"/>
@@ -106,7 +113,7 @@
 
                 <!-- 喝水提醒区域 -->
                 <!-- 喝水提醒区域 (Premium Design) -->
-                <Grid x:Name="DrinkWaterPanel" Grid.Column="0" Grid.ColumnSpan="4" VerticalAlignment="Center" HorizontalAlignment="Stretch" Visibility="Collapsed" Margin="15,0">
+                <Grid x:Name="DrinkWaterPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" HorizontalAlignment="Stretch" Visibility="Collapsed" Margin="15,0">
                     <Grid.RenderTransform>
                         <TranslateTransform Y="0"/>
                     </Grid.RenderTransform>
@@ -202,7 +209,7 @@
 
                 <!-- 待办事项提醒区域 -->
                 <!-- 待办事项提醒区域 (Premium Design) -->
-                <Grid x:Name="TodoPanel" Grid.Column="0" Grid.ColumnSpan="4" VerticalAlignment="Center" HorizontalAlignment="Stretch" Visibility="Collapsed" Margin="15,0">
+                <Grid x:Name="TodoPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" HorizontalAlignment="Stretch" Visibility="Collapsed" Margin="15,0">
                     <Grid.RenderTransform>
                         <TranslateTransform Y="0"/>
                     </Grid.RenderTransform>
@@ -294,7 +301,7 @@
                 </Grid>
 
                 <!-- 灵动黑洞 (文件与中转站) -->
-                <Grid x:Name="FileStationPanel" Grid.Column="0" Grid.ColumnSpan="4" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="True">
+                <Grid x:Name="FileStationPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="True">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -361,49 +368,152 @@
                     
                 </Grid>
 
-                <Image x:Name="AlbumCover" Grid.Column="0" Width="40" Height="40" Margin="10,0,0,0" Visibility="Collapsed">
+
+
+                <!-- 左侧封面卡片 -->
+                <Image x:Name="AlbumCover" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Width="40" Height="40" Margin="10,4,0,0" VerticalAlignment="Top" Visibility="Collapsed" Stretch="UniformToFill">
                     <Image.Clip>
-                        <EllipseGeometry Center="20,20" RadiusX="20" RadiusY="20"/>
+                        <RectangleGeometry x:Name="AlbumClip" Rect="0,0,40,40" RadiusX="10" RadiusY="10"/>
                     </Image.Clip>
                 </Image>
+                <Border x:Name="AudioSourceBadge"
+                        Grid.Row="0"
+                        Grid.RowSpan="2"
+                        Grid.Column="0"
+                        Width="16"
+                        Height="16"
+                        CornerRadius="8"
+                        Background="#EE141414"
+                        BorderBrush="#66FFFFFF"
+                        BorderThickness="1"
+                        Margin="34,28,0,0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <Grid>
+                        <Image x:Name="AudioSourceBadgeIcon"
+                               Width="12"
+                               Height="12"
+                               Stretch="Uniform"
+                               Visibility="Collapsed"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                        <TextBlock x:Name="AudioSourceBadgeText"
+                                   Text="♪"
+                                   Foreground="White"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
 
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0">
-                    <TextBlock x:Name="SongTitle" Text="WinIsland" Foreground="White" FontSize="13" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
+                <!-- 右侧信息与控制区 -->
+                <StackPanel x:Name="MainMediaArea" Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" Margin="12,4,14,0" MaxHeight="40">
+                    <!-- 1. 歌曲信息 (紧凑/展开) -->
+                    <StackPanel x:Name="InfoPanel" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <TextBlock x:Name="SongTitle" Text="topx" Foreground="White" FontSize="14" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="ArtistName" Text="Unknown Artist" Foreground="#AAAAAA" FontSize="11" Margin="0,1,0,0" Visibility="Collapsed" Opacity="0"/>
+                        <TextBlock x:Name="SongLyricPreview" Text="" Foreground="#E6E6E6" FontSize="13" Margin="0,0,0,0" TextWrapping="Wrap" MaxHeight="40" TextTrimming="CharacterEllipsis" Visibility="Collapsed"/>
+                    </StackPanel>
 
-                <StackPanel x:Name="ControlPanel" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0" Visibility="Collapsed">
-                    <!-- 上一曲 -->
-                    <Button x:Name="BtnPrev" Click="BtnPrev_Click" Style="{StaticResource PlayerBtnStyle}" Width="24" Height="24">
-                        <Path Data="M6,18 L14.5,12 L6,6 L6,18 Z M15,6 L15,18 L17,18 L17,6 L15,6 Z" Fill="White" Stretch="Uniform" Width="12" Height="12"/>
-                    </Button>
-                    
-                    <!-- 播放/暂停 -->
-                    <Button x:Name="BtnPlayPause" Click="BtnPlayPause_Click" Style="{StaticResource PlayerBtnStyle}" Width="32" Height="32">
-                        <Grid>
-                            <Path x:Name="IconPlay" Data="M8,5 L19,12 L8,19 Z" Fill="White" Stretch="Uniform" Width="14" Height="14" Visibility="Visible"/>
-                            <Path x:Name="IconPause" Data="M6,19 L10,19 L10,5 L6,5 Z M14,5 L14,19 L18,19 L18,5 Z" Fill="White" Stretch="Uniform" Width="14" Height="14" Visibility="Collapsed"/>
+                    <Grid x:Name="ProgressArea" Margin="0,5,0,1" Visibility="Collapsed" Opacity="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Slider x:Name="MediaProgressBar" Height="12" Background="Transparent" Foreground="White" BorderThickness="0" Maximum="100" Value="0" VerticalAlignment="Center" MouseLeftButtonUp="MediaProgressBar_MouseLeftButtonUp" IsMoveToPointEnabled="True">
+                            <Slider.Template>
+                                <ControlTemplate TargetType="Slider">
+                                    <Grid VerticalAlignment="Center">
+                                        <Border Height="4" Background="#33FFFFFF" CornerRadius="2"/>
+                                        <Track x:Name="PART_Track">
+                                            <Track.DecreaseRepeatButton>
+                                                <RepeatButton Command="Slider.DecreaseLarge">
+                                                    <RepeatButton.Template>
+                                                        <ControlTemplate>
+                                                            <Border Height="4" Background="White" CornerRadius="2"/>
+                                                        </ControlTemplate>
+                                                    </RepeatButton.Template>
+                                                </RepeatButton>
+                                            </Track.DecreaseRepeatButton>
+                                            <Track.Thumb>
+                                                <Thumb Width="8" Height="8">
+                                                    <Thumb.Template>
+                                                        <ControlTemplate>
+                                                            <Ellipse Fill="White" Width="6" Height="6" x:Name="ThumbEllipse">
+                                                                <Ellipse.Effect>
+                                                                    <DropShadowEffect BlurRadius="4" ShadowDepth="0" Opacity="0.5"/>
+                                                                </Ellipse.Effect>
+                                                            </Ellipse>
+                                                        </ControlTemplate>
+                                                    </Thumb.Template>
+                                                </Thumb>
+                                            </Track.Thumb>
+                                        </Track>
+                                    </Grid>
+                                </ControlTemplate>
+                            </Slider.Template>
+                        </Slider>
+                        <Grid Grid.Row="1" Margin="0,4,0,0">
+                            <TextBlock x:Name="TxtCurrentTime" Text="0:00" Foreground="#88FFFFFF" FontSize="10" HorizontalAlignment="Left"/>
+                            <TextBlock x:Name="TxtTotalTime" Text="0:00" Foreground="#88FFFFFF" FontSize="10" HorizontalAlignment="Right"/>
                         </Grid>
-                    </Button>
-                    
-                    <!-- 下一曲 -->
-                    <Button x:Name="BtnNext" Click="BtnNext_Click" Style="{StaticResource PlayerBtnStyle}" Width="24" Height="24">
-                        <Path Data="M7,6 L7,18 L9,18 L9,6 L7,6 Z M9.5,12 L18,18 L18,6 L9.5,12 Z" Fill="White" Stretch="Uniform" Width="12" Height="12"/>
-                    </Button>
+                    </Grid>
+                    <!-- 3. 控制按钮 (悬停时变大并居中) -->
+                    <StackPanel x:Name="ControlPanel" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4,0,0" Visibility="Collapsed" Opacity="0">
+                        <Button x:Name="BtnPrev" Click="BtnPrev_Click" Style="{StaticResource PlayerBtnStyle}" Width="24" Height="24" Margin="4,0">
+                            <Path Data="M18,6 L18,18 L16,18 L16,6 L18,6 Z M15,12 L7,18 L7,6 L15,12 Z M8,12 L0,18 L0,6 L8,12 Z" Fill="White" Stretch="Uniform" Width="16" Height="14"/>
+                        </Button>
+                        <Button x:Name="BtnPlayPause" Click="BtnPlayPause_Click" Style="{StaticResource PlayerBtnStyle}" Width="28" Height="28" Margin="4,0">
+                            <Grid>
+                                <Path x:Name="IconPlay" Data="M8,5 L19,12 L8,19 Z" Fill="White" Stretch="Uniform" Width="14" Height="14" Visibility="Visible"/>
+                                <Path x:Name="IconPause" Data="M6,19 L10,19 L10,5 L6,5 Z M14,5 L14,19 L18,19 L18,5 Z" Fill="White" Stretch="Uniform" Width="13" Height="13" Visibility="Collapsed"/>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="BtnNext" Click="BtnNext_Click" Style="{StaticResource PlayerBtnStyle}" Width="24" Height="24" Margin="4,0">
+                            <Path Data="M0,6 L0,18 L2,18 L2,6 L0,6 Z M3,12 L11,6 L11,18 L3,12 Z M10,12 L18,6 L18,18 L10,12 Z" Fill="White" Stretch="Uniform" Width="16" Height="14"/>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
+                
+                <!-- 展开模式下的独立歌词行 (可选位置) -->
+                <TextBlock x:Name="SongLyricFull" Grid.Row="1" Grid.Column="1" Text="" Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,10" TextWrapping="Wrap" TextAlignment="Left" Visibility="Collapsed" Opacity="0"/>
 
-                <StackPanel x:Name="VisualizerContainer" Grid.Column="3" Orientation="Horizontal" Margin="0,0,15,0" VerticalAlignment="Center" Visibility="Collapsed">
+                <!-- 频谱 (限制高度并开启裁剪，隔离布局影响) -->
+                <Grid x:Name="VisualizerContainer" Grid.Row="0" Grid.Column="2" VerticalAlignment="Top" Visibility="Collapsed" Height="24" Margin="0,12,15,0" ClipToBounds="True">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- ...保持不变... -->
                     <StackPanel.Resources>
-                        <LinearGradientBrush x:Key="VisualizerBrush" StartPoint="0,1" EndPoint="0,0">
-                            <GradientStop Color="#FF1DB954" Offset="0"/>
-                            <GradientStop Color="#FF1ED760" Offset="1"/>
+                        <LinearGradientBrush x:Key="VisualizerBrush1" StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#FF4DA3FF" Offset="0"/>
+                            <GradientStop Color="#FF84C5FF" Offset="1"/>
+                        </LinearGradientBrush>
+                        <LinearGradientBrush x:Key="VisualizerBrush2" StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#FF58D68D" Offset="0"/>
+                            <GradientStop Color="#FF9BFFC8" Offset="1"/>
+                        </LinearGradientBrush>
+                        <LinearGradientBrush x:Key="VisualizerBrush3" StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#FFFFB347" Offset="0"/>
+                            <GradientStop Color="#FFFFD28A" Offset="1"/>
+                        </LinearGradientBrush>
+                        <LinearGradientBrush x:Key="VisualizerBrush4" StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#FFFF6B8A" Offset="0"/>
+                            <GradientStop Color="#FFFFA3B5" Offset="1"/>
+                        </LinearGradientBrush>
+                        <LinearGradientBrush x:Key="VisualizerBrush5" StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#FF9A7CFF" Offset="0"/>
+                            <GradientStop Color="#FFC3B4FF" Offset="1"/>
                         </LinearGradientBrush>
                     </StackPanel.Resources>
-                    <Border x:Name="Bar1" Width="4" Height="4" Background="{StaticResource VisualizerBrush}" Margin="1.5" CornerRadius="2"/>
-                    <Border x:Name="Bar2" Width="4" Height="8" Background="{StaticResource VisualizerBrush}" Margin="1.5" CornerRadius="2"/>
-                    <Border x:Name="Bar3" Width="4" Height="12" Background="{StaticResource VisualizerBrush}" Margin="1.5" CornerRadius="2"/>
-                    <Border x:Name="Bar4" Width="4" Height="8" Background="{StaticResource VisualizerBrush}" Margin="1.5" CornerRadius="2"/>
-                    <Border x:Name="Bar5" Width="4" Height="4" Background="{StaticResource VisualizerBrush}" Margin="1.5" CornerRadius="2"/>
-                </StackPanel>
+                    <Border x:Name="Bar1" Width="3" Height="4" Background="{StaticResource VisualizerBrush1}" Margin="1" CornerRadius="1.5"/>
+                    <Border x:Name="Bar2" Width="3" Height="8" Background="{StaticResource VisualizerBrush2}" Margin="1" CornerRadius="1.5"/>
+                    <Border x:Name="Bar3" Width="3" Height="12" Background="{StaticResource VisualizerBrush3}" Margin="1" CornerRadius="1.5"/>
+                    <Border x:Name="Bar4" Width="3" Height="8" Background="{StaticResource VisualizerBrush4}" Margin="1" CornerRadius="1.5"/>
+                    <Border x:Name="Bar5" Width="3" Height="4" Background="{StaticResource VisualizerBrush5}" Margin="1" CornerRadius="1.5"/>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

@@ -6,9 +6,17 @@ namespace WinIsland
 {
     public class AppSettings
     {
+        public bool BluetoothNotificationEnabled { get; set; } = true;
+        public bool UsbNotificationEnabled { get; set; } = true;
+        public bool MessageNotificationEnabled { get; set; } = true;
+        public bool ShowMediaPlayer { get; set; } = true;
+        public bool ShowVisualizer { get; set; } = true;
         public bool DrinkWaterEnabled { get; set; } = false;
         public int DrinkWaterIntervalMinutes { get; set; } = 30;
         public bool TodoEnabled { get; set; } = false;
+        public double IslandOpacity { get; set; } = 1.0;
+        public double? WindowLeft { get; set; }
+        public double? WindowTop { get; set; }
         public string DrinkWaterStartTime { get; set; } = "09:00";
         public string DrinkWaterEndTime { get; set; } = "22:00";
         public DrinkWaterMode DrinkWaterMode { get; set; } = DrinkWaterMode.Interval;
