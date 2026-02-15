@@ -48,7 +48,7 @@ namespace WinIsland
         private string _lastLyricText = "";
         private bool _isLyricVisible = false;
         private readonly TimeSpan _lyricPollInterval = TimeSpan.FromMilliseconds(300);
-        private readonly TimeSpan _lyricTimelineOffset = TimeSpan.Zero;
+        private readonly TimeSpan _lyricTimelineOffset = TimeSpan.FromSeconds(1.4);
         private Dictionary<string, List<TrackInfo>> _tracksByTitle;
         private DateTime _trackIndexLastWriteUtc = DateTime.MinValue;
         private string _currentLyricTrackId;
@@ -1253,6 +1253,9 @@ namespace WinIsland
             Dispatcher.Invoke(() =>
             {
                 ControlPanel.Visibility = Visibility.Collapsed;
+                ProgressArea.Visibility = Visibility.Collapsed;
+                ArtistName.Visibility = Visibility.Collapsed;
+                ArtistName.Text = "";
                 VisualizerContainer.Visibility = Visibility.Collapsed;
                 AlbumCover.Visibility = Visibility.Collapsed;
                 AudioSourceBadge.Visibility = Visibility.Collapsed;
@@ -1409,15 +1412,21 @@ namespace WinIsland
 
         private void UpdateAudioSourceBadgePosition(double coverSize, Thickness coverMargin)
         {
-            if (AudioSourceBadge == null) return;
+            if (AudioSourceBadge == null || AudioSourceBadgeIcon == null || AudioSourceBadgeText == null) return;
 
-            var badgeSize = coverSize >= 80 ? 20 : 16;
+            var badgeSize = coverSize >= 80 ? 24 : 18; // 稍微调大一点 (原 20 : 16)
             AudioSourceBadge.Width = badgeSize;
             AudioSourceBadge.Height = badgeSize;
             AudioSourceBadge.CornerRadius = new CornerRadius(badgeSize / 2);
+            
+            // 动态调整内部图标和文字大小
+            AudioSourceBadgeIcon.Width = badgeSize - 4;
+            AudioSourceBadgeIcon.Height = badgeSize - 4;
+            AudioSourceBadgeText.FontSize = badgeSize * 0.65;
+
             AudioSourceBadge.Margin = new Thickness(
-                coverMargin.Left + coverSize - (badgeSize * 0.55),
-                coverMargin.Top + coverSize - (badgeSize * 0.55),
+                coverMargin.Left + coverSize - (badgeSize * 0.6), // 调整偏移位置
+                coverMargin.Top + coverSize - (badgeSize * 0.6),
                 0,
                 0);
         }
@@ -1433,12 +1442,18 @@ namespace WinIsland
             else if (id.Contains("cloudmusic") || id.Contains("netease")) glyph = "N";
             else if (id.Contains("qqmusic") || id.Contains("tencent")) glyph = "Q";
             else if (id.Contains("zunemusic") || id.Contains("music.ui")) glyph = "W";
+            else if (id.Contains("kugou")) glyph = "K";
+            else if (id.Contains("kuwo") || id.Contains("kwp")) glyph = "K";
+            else if (id.Contains("chrome")) glyph = "C";
+            else if (id.Contains("edge")) glyph = "E";
+            else if (id.Contains("firefox")) glyph = "F";
+            else if (id.Contains("yesplay")) glyph = "Y";
             else
             {
-                var token = sourceAppId?.Split('.', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
-                if (!string.IsNullOrWhiteSpace(token))
+                var name = GetProcessNameFromSourceId(sourceAppId);
+                if (!string.IsNullOrWhiteSpace(name))
                 {
-                    var c = token.Trim()[0];
+                    var c = name.Trim()[0];
                     if (char.IsLetter(c)) glyph = char.ToUpperInvariant(c).ToString();
                 }
             }
@@ -1475,31 +1490,53 @@ namespace WinIsland
 
             try
             {
+                // Try to find the process and its icon
                 var processes = Process.GetProcessesByName(processName);
+                string path = null;
+
                 foreach (var p in processes)
                 {
                     try
                     {
-                        var path = p.MainModule?.FileName;
-                        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
-
-                        using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
-                        if (icon == null) continue;
-
-                        var image = Imaging.CreateBitmapSourceFromHIcon(
-                            icon.Handle,
-                            Int32Rect.Empty,
-                            BitmapSizeOptions.FromWidthAndHeight(16, 16));
-                        image.Freeze();
-
-                        _audioSourceIconCache[sourceAppId] = image;
-                        iconSource = image;
-                        return true;
+                        path = p.MainModule?.FileName;
+                        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) break;
                     }
                     catch { }
                     finally
                     {
                         try { p.Dispose(); } catch { }
+                    }
+                }
+
+                // If process lookup failed, try to find the application path from registry for common apps
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    try
+                    {
+                        var exeName = processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? processName : processName + ".exe";
+                        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey($@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exeName}");
+                        if (key != null)
+                        {
+                            path = key.GetValue("")?.ToString();
+                        }
+                    }
+                    catch { }
+                }
+
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                {
+                    using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+                    if (icon != null)
+                    {
+                        var image = Imaging.CreateBitmapSourceFromHIcon(
+                            icon.Handle,
+                            Int32Rect.Empty,
+                            BitmapSizeOptions.FromWidthAndHeight(32, 32)); // Get a slightly higher res icon
+                        image.Freeze();
+
+                        _audioSourceIconCache[sourceAppId] = image;
+                        iconSource = image;
+                        return true;
                     }
                 }
             }
@@ -2310,8 +2347,8 @@ namespace WinIsland
                 }
             }
 
-            // 右滑进入待机
-            if (dx >= SwipeTriggerDistance &&
+            // 左滑进入待机
+            if (dx <= -SwipeTriggerDistance &&
                 Math.Abs(dy) <= SwipeMaxVerticalDelta &&
                 Math.Abs(dx) > Math.Abs(dy) * 1.5)
             {
@@ -2319,8 +2356,8 @@ namespace WinIsland
                 return;
             }
 
-            // 左滑退出待机（仅手动待机状态有效）
-            if (dx <= -SwipeTriggerDistance &&
+            // 右滑退出待机（仅手动待机状态有效）
+            if (dx >= SwipeTriggerDistance &&
                 Math.Abs(dy) <= SwipeMaxVerticalDelta &&
                 Math.Abs(dx) > Math.Abs(dy) * 1.5 &&
                 _manualStandby)
