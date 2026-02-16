@@ -1,0 +1,2 @@
+188:            if (SystemStatsPanel.Visibility != Visibility.Visible) return;
+1885:                    SystemStatsPanel.Visibility = Visibility.Visible;

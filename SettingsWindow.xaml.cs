@@ -8,6 +8,7 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using MessageBox = System.Windows.MessageBox;
 using Application = System.Windows.Application;
+using System.Linq;
 
 namespace WinIsland
 {
@@ -35,12 +36,18 @@ namespace WinIsland
             
             // 系统设置
             ChkStartWithWindows.IsChecked = IsStartupEnabled();
+            ChkSystemStats.IsChecked = settings.SystemStatsEnabled;
             ChkBluetoothNotification.IsChecked = settings.BluetoothNotificationEnabled;
             ChkUsbNotification.IsChecked = settings.UsbNotificationEnabled;
             ChkMessageNotification.IsChecked = settings.MessageNotificationEnabled;
+            ChkNotificationAllowAllApps.IsChecked = settings.NotificationAllowAllApps;
+            TxtNotificationWhitelist.Text = settings.NotificationAppWhitelist ?? "";
+            ChkNotificationDebugLogging.IsChecked = settings.NotificationDebugLoggingEnabled;
             ChkShowMediaPlayer.IsChecked = settings.ShowMediaPlayer;
             ChkShowVisualizer.IsChecked = settings.ShowVisualizer;
             SldIslandOpacity.Value = Math.Clamp(settings.IslandOpacity, 0.2, 1.0);
+            SldIslandWidth.Value = Math.Clamp(settings.StandbyWidth, 80, 200);
+            SldIslandHeight.Value = Math.Clamp(settings.StandbyHeight, 25, 50);
 
             // 喝水提醒
             ChkDrinkWater.IsChecked = settings.DrinkWaterEnabled;
@@ -60,8 +67,26 @@ namespace WinIsland
             ListTodo.ItemsSource = settings.TodoList;
             DpTodoDate.SelectedDate = DateTime.Today;
             
+            // 久坐提醒
+            ChkSedentaryReminder.IsChecked = settings.SedentaryReminderEnabled;
+            TxtSedentaryInterval.Text = settings.SedentaryReminderIntervalMinutes.ToString();
+
             UpdateDrinkWaterUI();
             UpdateTodoUI();
+            UpdateSedentaryUI();
+            UpdateNotificationUI();
+            TxtFocusModeAllowedApps.Text = settings.FocusModeAllowedApps ?? "";
+            ChkFocusModeBluetooth.IsChecked = settings.FocusModeBluetoothEnabled;
+            ChkFocusModeUsb.IsChecked = settings.FocusModeUsbEnabled;
+            ChkFocusModeMessage.IsChecked = settings.FocusModeMessageEnabled;
+            ChkFocusModeAllowAllApps.IsChecked = settings.FocusModeAllowAllApps;
+            ChkFocusModeShowMediaPlayer.IsChecked = settings.FocusModeShowMediaPlayer;
+            ChkFocusModeShowVisualizer.IsChecked = settings.FocusModeShowVisualizer;
+            ChkFocusModeShowSystemStats.IsChecked = settings.FocusModeSystemStatsEnabled;
+            ChkFocusModeShowDrinkWater.IsChecked = settings.FocusModeDrinkWaterEnabled;
+            ChkFocusModeShowSedentary.IsChecked = settings.FocusModeSedentaryEnabled;
+            ChkFocusModeShowTodo.IsChecked = settings.FocusModeTodoEnabled;
+            UpdateFocusChart();
             _isLoading = false;
         }
 
@@ -74,12 +99,18 @@ namespace WinIsland
             else DisableStartup();
 
             var settings = AppSettings.Load();
+            settings.SystemStatsEnabled = ChkSystemStats.IsChecked == true;
             settings.BluetoothNotificationEnabled = ChkBluetoothNotification.IsChecked == true;
             settings.UsbNotificationEnabled = ChkUsbNotification.IsChecked == true;
             settings.MessageNotificationEnabled = ChkMessageNotification.IsChecked == true;
+            settings.NotificationAllowAllApps = ChkNotificationAllowAllApps.IsChecked == true;
+            settings.NotificationAppWhitelist = TxtNotificationWhitelist.Text ?? "";
+            settings.NotificationDebugLoggingEnabled = ChkNotificationDebugLogging.IsChecked == true;
             settings.ShowMediaPlayer = ChkShowMediaPlayer.IsChecked == true;
             settings.ShowVisualizer = ChkShowVisualizer.IsChecked == true;
             settings.IslandOpacity = Math.Clamp(SldIslandOpacity.Value, 0.2, 1.0);
+            settings.StandbyWidth = Math.Clamp(SldIslandWidth.Value, 80, 200);
+            settings.StandbyHeight = Math.Clamp(SldIslandHeight.Value, 25, 50);
             
             // 喝水提醒
             settings.DrinkWaterEnabled = ChkDrinkWater.IsChecked == true;
@@ -91,8 +122,28 @@ namespace WinIsland
             if (TimeSpan.TryParse(TxtDrinkEndTime.Text, out _)) settings.DrinkWaterEndTime = TxtDrinkEndTime.Text;
             settings.DrinkWaterMode = RbModeCustom.IsChecked == true ? DrinkWaterMode.Custom : DrinkWaterMode.Interval;
             
+            // 久坐提醒
+            settings.SedentaryReminderEnabled = ChkSedentaryReminder.IsChecked == true;
+            if (int.TryParse(TxtSedentaryInterval.Text, out int sedentaryInterval))
+            {
+                settings.SedentaryReminderIntervalMinutes = Math.Max(1, sedentaryInterval);
+            }
+
             // 待办事项
             settings.TodoEnabled = ChkTodo.IsChecked == true;
+
+            // 专注模式
+            settings.FocusModeAllowedApps = TxtFocusModeAllowedApps.Text ?? "";
+            settings.FocusModeBluetoothEnabled = ChkFocusModeBluetooth.IsChecked == true;
+            settings.FocusModeUsbEnabled = ChkFocusModeUsb.IsChecked == true;
+            settings.FocusModeMessageEnabled = ChkFocusModeMessage.IsChecked == true;
+            settings.FocusModeAllowAllApps = ChkFocusModeAllowAllApps.IsChecked == true;
+            settings.FocusModeShowMediaPlayer = ChkFocusModeShowMediaPlayer.IsChecked == true;
+            settings.FocusModeShowVisualizer = ChkFocusModeShowVisualizer.IsChecked == true;
+            settings.FocusModeSystemStatsEnabled = ChkFocusModeShowSystemStats.IsChecked == true;
+            settings.FocusModeDrinkWaterEnabled = ChkFocusModeShowDrinkWater.IsChecked == true;
+            settings.FocusModeSedentaryEnabled = ChkFocusModeShowSedentary.IsChecked == true;
+            settings.FocusModeTodoEnabled = ChkFocusModeShowTodo.IsChecked == true;
 
             settings.Save();
 
@@ -105,7 +156,43 @@ namespace WinIsland
             Close();
         }
 
-        private void AutoSave_Changed(object sender, RoutedEventArgs e) => SaveSettings();
+        private void AutoSave_Changed(object sender, RoutedEventArgs e) 
+        {
+            UpdateNotificationUI();
+            SaveSettings();
+        }
+
+        private void UpdateNotificationUI()
+        {
+             if (ChkNotificationAllowAllApps.IsChecked == true)
+             {
+                 TxtNotificationWhitelist.Visibility = Visibility.Collapsed;
+                 TxtWhitelistLabel.Visibility = Visibility.Collapsed;
+             }
+             else
+             {
+                 TxtNotificationWhitelist.Visibility = Visibility.Visible;
+                 TxtWhitelistLabel.Visibility = Visibility.Visible;
+             }
+        }
+        
+        private void ChkSedentary_Checked(object sender, RoutedEventArgs e)
+        {
+            UpdateSedentaryUI();
+            SaveSettings();
+        }
+
+        private void ChkSedentary_Unchecked(object sender, RoutedEventArgs e)
+        {
+            UpdateSedentaryUI();
+            SaveSettings();
+        }
+
+        private void UpdateSedentaryUI()
+        {
+            if (PanelSedentarySettings == null) return;
+            PanelSedentarySettings.Visibility = ChkSedentaryReminder.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         private void AutoSave_LostFocus(object sender, RoutedEventArgs e) => SaveSettings();
 
@@ -119,12 +206,35 @@ namespace WinIsland
             PanelSystem.Visibility = target == "PanelSystem" ? Visibility.Visible : Visibility.Collapsed;
             PanelHealth.Visibility = target == "PanelHealth" ? Visibility.Visible : Visibility.Collapsed;
             PanelTodo.Visibility = target == "PanelTodo" ? Visibility.Visible : Visibility.Collapsed;
+            PanelFocus.Visibility = target == "PanelFocus" ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void BtnTestNotification_Click(object sender, RoutedEventArgs e)
+        {
+            if (Application.Current.MainWindow is MainWindow mw)
+            {
+                mw.ShowTestNotification();
+            }
         }
 
         private void SldIslandOpacity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (TxtIslandOpacityValue == null) return;
             TxtIslandOpacityValue.Text = $"{Math.Round(e.NewValue * 100):0}%";
+            SaveSettings();
+        }
+
+        private void SldIslandWidth_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtIslandWidthValue == null) return;
+            TxtIslandWidthValue.Text = Math.Round(e.NewValue).ToString();
+            SaveSettings();
+        }
+
+        private void SldIslandHeight_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (TxtIslandHeightValue == null) return;
+            TxtIslandHeightValue.Text = Math.Round(e.NewValue).ToString();
             SaveSettings();
         }
 
@@ -365,5 +475,53 @@ namespace WinIsland
 
             return false;
         }
+        private void UpdateFocusChart()
+        {
+            try
+            {
+                var settings = AppSettings.Load();
+                var history = settings.FocusHistory ?? new List<FocusSession>();
+                
+                var today = DateTime.Today;
+                var chartData = new List<FocusChartItem>();
+                
+                // 计算最近 7 天 (含今天)
+                for (int i = 6; i >= 0; i--)
+                {
+                    var date = today.AddDays(-i);
+                    var totalSeconds = history
+                        .Where(s => s.StartTime.Date == date)
+                        .Sum(s => s.DurationSeconds);
+                    
+                    // 假设 2 小时 (7200s) 为 100% 高度 (100)
+                    double barHeight = Math.Min(100, (totalSeconds / 7200.0) * 100);
+                    if (totalSeconds > 0 && barHeight < 5) barHeight = 5; // 最小可见高度
+
+                    chartData.Add(new FocusChartItem
+                    {
+                        BarHeight = barHeight,
+                        DayLabel = i == 0 ? "今天" : date.ToString("MM/dd"),
+                        ToolTipText = $"{date:yyyy-MM-dd}\n时长: {FormatFocusDuration(totalSeconds)}"
+                    });
+                }
+                
+                ChartFocusHistory.ItemsSource = chartData;
+            }
+            catch { }
+        }
+
+        private string FormatFocusDuration(double seconds)
+        {
+            var t = TimeSpan.FromSeconds(seconds);
+            if (t.TotalHours >= 1) return $"{(int)t.TotalHours}小时 {t.Minutes}分";
+            return $"{t.Minutes}分 {t.Seconds}秒";
+        }
+    }
+
+    public class FocusChartItem
+    {
+        public double BarHeight { get; set; }
+        public string DayLabel { get; set; }
+        public string ToolTipText { get; set; }
     }
 }

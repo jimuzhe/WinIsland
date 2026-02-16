@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Net.Http;
+using System.Net.NetworkInformation; // Network Interface
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Globalization;
@@ -27,6 +28,7 @@ using Point = System.Windows.Point;
 using Application = System.Windows.Application;
 using System.Windows.Media.Effects; // Screen
 using System.Text.RegularExpressions;
+using Windows.Devices.Radios;
 
 namespace WinIsland
 {
@@ -61,10 +63,21 @@ namespace WinIsland
         private string _currentSubtitle;
 
         // 通知相关
+
         private DispatcherTimer _notificationTimer;
         private bool _isNotificationActive = false;
         private UserNotificationListener _listener;
+        private DispatcherTimer _notificationInitRetryTimer;
+        
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RadioState> _bluetoothRadioStateCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, RadioState>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<Radio> _bluetoothRadios = new List<Radio>();
         private const double MinIslandOpacity = 0.2;
+        
+        // Database Notification Reader
+        private DbNotificationReader _dbNotificationReader;
+        private DispatcherTimer _dbNotificationCheckTimer;
+
         private Window _centerGuideWindow;
         private const double CenterSnapThreshold = 12;
         private bool _isPlaying = false;
@@ -76,9 +89,302 @@ namespace WinIsland
         private bool _swipeTriggered = false;
         private Point _swipeStart;
         private readonly Dictionary<string, ImageSource> _audioSourceIconCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, ImageSource> _notificationAppIconCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
         private const double SwipeStartThreshold = 8;
         private const double SwipeTriggerDistance = 60;
         private const double SwipeMaxVerticalDelta = 28;
+
+        // 系统参数相关
+        private PerformanceCounter _cpuCounter;
+        private PerformanceCounter _ramCounter;
+        private float _totalMemoryGB;
+        private DispatcherTimer _systemStatsTimer;
+        
+        // 网速统计
+        private NetworkInterface? _activeNetworkInterface;
+        private long _prevBytesSent = 0;
+        private long _prevBytesReceived = 0;
+        private DateTime _lastNetUpdate = DateTime.MinValue;
+
+        // 久坐提醒
+        private DispatcherTimer _sedentaryCheckTimer;
+        private DateTime _lastActivityParams;
+        private DateTime _sedentaryStartTime;
+
+        // 专注模式
+        private bool _isFocusModeActive = false;
+        private bool _isFocusModePaused = false;
+        private DateTime _focusStartTime;
+        private TimeSpan _accumulatedFocusTime = TimeSpan.Zero;
+        private DispatcherTimer _focusTimer;
+        private DateTime _lastFocusDoubleClickTime = DateTime.MinValue;
+
+        private void InitializeSystemStats()
+        {
+            try 
+            {
+                // 使用 WMI 获取总内存
+                using (var searcher = new ManagementObjectSearcher("SELECT TotalVisibleMemorySize FROM Win32_OperatingSystem"))
+                {
+                    foreach (var item in searcher.Get())
+                    {
+                        if (item["TotalVisibleMemorySize"] != null)
+                        {
+                            _totalMemoryGB = Convert.ToSingle(item["TotalVisibleMemorySize"]) / 1024f / 1024f;
+                        }
+                        break;
+                    }
+                }
+
+                _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
+                _ramCounter = new PerformanceCounter("Memory", "Available MBytes");
+                
+                _cpuCounter.NextValue();
+                _ramCounter.NextValue();
+
+                // 初始化网络接口
+                UpdateActiveNetworkInterface();
+
+                _systemStatsTimer = new DispatcherTimer();
+                _systemStatsTimer.Interval = TimeSpan.FromSeconds(1);
+                _systemStatsTimer.Tick += UpdateSystemStats;
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"System Stats Init Error: {ex.Message}");
+            }
+        }
+
+        private void UpdateActiveNetworkInterface()
+        {
+            try
+            {
+                // 查找当前最活跃的接口 (OperationalStatus Up 且非 Loopback)
+                // 简单策略：找第一个 Up 的以太网或无线网卡
+                var interfaces = NetworkInterface.GetAllNetworkInterfaces();
+                foreach (var ni in interfaces)
+                {
+                    if (ni.OperationalStatus == OperationalStatus.Up && 
+                        (ni.NetworkInterfaceType == NetworkInterfaceType.Ethernet || ni.NetworkInterfaceType == NetworkInterfaceType.Wireless80211) &&
+                        ni.GetIPStatistics().BytesReceived > 0)
+                    {
+                        _activeNetworkInterface = ni;
+                        var stats = ni.GetIPStatistics();
+                        _prevBytesSent = stats.BytesSent;
+                        _prevBytesReceived = stats.BytesReceived;
+                        _lastNetUpdate = DateTime.Now;
+                        return;
+                    }
+                }
+                
+                // 如果没找到，就用第一个 Up 的
+                _activeNetworkInterface = interfaces.FirstOrDefault(x => x.OperationalStatus == OperationalStatus.Up && x.NetworkInterfaceType != NetworkInterfaceType.Loopback);
+            }
+            catch { }
+        }
+
+        private void UpdateSystemStats(object sender, EventArgs e)
+        {
+            if (SystemStatsPanel.Visibility != Visibility.Visible) return;
+            
+            try
+            {
+                // 1. CPU & RAM
+                float cpu = _cpuCounter.NextValue();
+                float availableMB = _ramCounter.NextValue();
+                float usedGB = _totalMemoryGB - (availableMB / 1024f);
+                float usedPercent = (usedGB / _totalMemoryGB) * 100;
+
+                TxtCpuUsage.Text = $"{Math.Round(cpu)}%";
+                TxtRamUsage.Text = $"{Math.Round(usedPercent)}%";
+
+                // 2. Network Speed
+                UpdateNetworkSpeed();
+            }
+            catch { }
+        }
+
+        private void UpdateNetworkSpeed()
+        {
+            if (_activeNetworkInterface == null)
+            {
+                UpdateActiveNetworkInterface();
+                if (_activeNetworkInterface == null) return;
+            }
+
+            try
+            {
+                var stats = _activeNetworkInterface.GetIPStatistics();
+                long currentSent = stats.BytesSent;
+                long currentReceived = stats.BytesReceived;
+                DateTime now = DateTime.Now;
+
+                double seconds = (now - _lastNetUpdate).TotalSeconds;
+                if (seconds <= 0) seconds = 1;
+
+                long sentDelta = currentSent - _prevBytesSent;
+                long receivedDelta = currentReceived - _prevBytesReceived;
+
+                // 只有当流量变化合理时才更新 (防止接口重置导致的负数)
+                if (sentDelta >= 0 && receivedDelta >= 0)
+                {
+                    double upSpeed = sentDelta / seconds;
+                    double downSpeed = receivedDelta / seconds;
+
+                    TxtNetUp.Text = FormatSpeed(upSpeed);
+                    TxtNetDown.Text = FormatSpeed(downSpeed);
+                }
+                else
+                {
+                    // 接口可能重置了，重新初始化
+                    UpdateActiveNetworkInterface();
+                }
+
+                _prevBytesSent = currentSent;
+                _prevBytesReceived = currentReceived;
+                _lastNetUpdate = now;
+            }
+            catch
+            {
+                // 接口可能断开了
+                UpdateActiveNetworkInterface();
+            }
+        }
+
+        private void InitializeFocusMode()
+        {
+            _focusTimer = new DispatcherTimer();
+            _focusTimer.Interval = TimeSpan.FromSeconds(1);
+            _focusTimer.Tick += UpdateFocusDuration;
+        }
+
+        private void ToggleFocusMode()
+        {
+            if (_isFocusModeActive)
+            {
+                StopFocusMode();
+            }
+            else
+            {
+                StartFocusMode();
+            }
+        }
+
+        private void StartFocusMode()
+        {
+            _isFocusModeActive = true;
+            _isFocusModePaused = false;
+            _focusStartTime = DateTime.Now;
+            _accumulatedFocusTime = TimeSpan.Zero;
+            _focusTimer.Start();
+
+            var settings = GetSettings();
+            _widthSpring.Target = Math.Max(settings.StandbyWidth, 140);
+            _heightSpring.Target = settings.StandbyHeight;
+
+            HideSystemStatsPanel();
+            HideAllMediaElements();
+            
+            FocusModePanel.Visibility = Visibility.Visible;
+            NotificationPanel.Visibility = Visibility.Collapsed;
+            DrinkWaterPanel.Visibility = Visibility.Collapsed;
+            TodoPanel.Visibility = Visibility.Collapsed;
+            FileStationPanel.Visibility = Visibility.Collapsed;
+
+            LogDebug("Focus Mode Started");
+            UpdateFocusUI();
+        }
+
+        private void StopFocusMode()
+        {
+            var duration = GetCurrentFocusDuration();
+            _isFocusModeActive = false;
+            _focusTimer.Stop();
+            FocusModePanel.Visibility = Visibility.Collapsed;
+
+            // Record session
+            try
+            {
+                var settings = GetSettings();
+                if (settings.FocusHistory == null) settings.FocusHistory = new List<FocusSession>();
+                settings.FocusHistory.Add(new FocusSession 
+                { 
+                    StartTime = _focusStartTime, 
+                    DurationSeconds = duration.TotalSeconds 
+                });
+                
+                // Keep only last 100 sessions
+                if (settings.FocusHistory.Count > 100)
+                {
+                    settings.FocusHistory.RemoveAt(0);
+                }
+                settings.Save();
+            }
+            catch { }
+
+            // Restore visibility
+            CheckCurrentSession();
+
+            LogDebug("Focus Mode Stopped. Total duration: " + duration);
+        }
+
+        private void UpdateFocusDuration(object sender, EventArgs e)
+        {
+            if (!_isFocusModePaused)
+            {
+                UpdateFocusUI();
+            }
+        }
+
+        private void UpdateFocusUI()
+        {
+            var duration = GetCurrentFocusDuration();
+            if (duration.TotalHours >= 1)
+                TxtFocusDuration.Text = duration.ToString(@"hh\:mm\:ss");
+            else
+                TxtFocusDuration.Text = duration.ToString(@"mm\:ss");
+        }
+
+        private TimeSpan GetCurrentFocusDuration()
+        {
+            if (!_isFocusModeActive) return TimeSpan.Zero;
+            if (_isFocusModePaused) return _accumulatedFocusTime;
+            return _accumulatedFocusTime + (DateTime.Now - _focusStartTime);
+        }
+
+        private void BtnPauseFocus_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isFocusModePaused)
+            {
+                // Resume
+                _isFocusModePaused = false;
+                _focusStartTime = DateTime.Now;
+                FocusPauseIcon.Visibility = Visibility.Visible;
+                FocusPlayIcon.Visibility = Visibility.Collapsed;
+                TxtFocusStatus.Text = "专注中";
+            }
+            else
+            {
+                // Pause
+                _isFocusModePaused = true;
+                _accumulatedFocusTime += (DateTime.Now - _focusStartTime);
+                FocusPauseIcon.Visibility = Visibility.Collapsed;
+                FocusPlayIcon.Visibility = Visibility.Visible;
+                TxtFocusStatus.Text = "已暂停";
+            }
+        }
+
+        private void BtnStopFocus_Click(object sender, RoutedEventArgs e)
+        {
+            StopFocusMode();
+        }
+
+        private string FormatSpeed(double bytesPerSec)
+        {
+            if (bytesPerSec < 1024) return $"{bytesPerSec:0} B/s";
+            if (bytesPerSec < 1024 * 1024) return $"{bytesPerSec / 1024:0} K/s";
+            return $"{bytesPerSec / 1024 / 1024:0.0} M/s";
+        }
 
         private AppSettings GetSettings()
         {
@@ -113,6 +419,11 @@ namespace WinIsland
                 SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW);
            
                   Task.Delay(100).ContinueWith(_ => Dispatcher.Invoke(() => SetClickThrough(false)));
+                  Task.Delay(1200).ContinueWith(_ => Dispatcher.Invoke(() => InitializeNotificationListener()));
+            };
+            this.Activated += (s, e) =>
+            {
+                 InitializeNotificationListener();
             };
             
             // 窗口内容渲染完成后居中
@@ -124,29 +435,134 @@ namespace WinIsland
             InitializePhysics();
             InitializeMediaListener();
             InitializeAudioCapture();
+            InitializeSedentaryCheck();
 
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            _httpClient.Timeout = TimeSpan.FromSeconds(5);
-            InitializeDeviceWatcher();
+
+            // 监听设置变化消息
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged += (s, e) => { };
+
+            _notificationInitRetryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _notificationInitRetryTimer.Tick += (s, e) => InitializeNotificationListener();
+            _notificationInitRetryTimer.Start();
+
+            // 启动时检查是否有未处理的通知
+            // CheckForMissedNotifications(); // 暂不实现
+            
+            InitializeDbNotificationReader();
+
+            InitializeFocusMode();
+    InitializeDeviceWatcher();
+            InitializeBluetoothRadioWatcher();
             InitializeNotificationTimer();
-            InitializeNotificationListener();
             InitializeDrinkWaterFeature();
             InitializeTodoFeature();
+            InitializeSystemStats();
         }
+
+        private void InitializeSedentaryCheck()
+        {
+            _sedentaryCheckTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(30)
+            };
+            _sedentaryCheckTimer.Tick += CheckSedentaryStatus;
+            _sedentaryCheckTimer.Start();
+            _sedentaryStartTime = DateTime.Now;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct LASTINPUTINFO
+        {
+            public uint cbSize;
+            public uint dwTime;
+        }
+
+        private void CheckSedentaryStatus(object sender, EventArgs e)
+        {
+            try
+            {
+                var settings = GetSettings();
+                if (!settings.SedentaryReminderEnabled) 
+                {
+                    _sedentaryStartTime = DateTime.Now; // Disabled, reset timer
+                    return;
+                }
+
+                if (_isFocusModeActive && !settings.FocusModeSedentaryEnabled) return;
+
+                // 获取系统最后一次输入时间
+                var lastInputInfo = new LASTINPUTINFO();
+                lastInputInfo.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(lastInputInfo);
+                lastInputInfo.dwTime = 0;
+            
+                if (GetLastInputInfo(ref lastInputInfo))
+                {
+                    // Environment.TickCount is signed int, dwTime is uint
+                    // Use unchecked to handle overflow correctly or calculate difference
+                    int currentTick = Environment.TickCount;
+                    int lastInputTick = (int)lastInputInfo.dwTime;
+                    int idleTime = currentTick - lastInputTick;
+                    
+                    // 如果空闲时间超过 5 分钟 (300000ms)，说明用户可能离开了，重置久坐计时
+                    if (idleTime > 5 * 60 * 1000)
+                    {
+                        _sedentaryStartTime = DateTime.Now;
+                    }
+                    else
+                    {
+                        // 用户一直在活动，检查是否超过设定的久坐时长
+                        var activeDuration = DateTime.Now - _sedentaryStartTime;
+                        if (activeDuration.TotalMinutes >= settings.SedentaryReminderIntervalMinutes)
+                        {
+                            // 触发提醒
+                            ShowMessageNotification($"您已连续工作 {Math.Floor(activeDuration.TotalMinutes)} 分钟\n起来活动一下吧！", null);
+                            
+                            // 重置计时
+                            _sedentaryStartTime = DateTime.Now;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"Sedentary Check Error: {ex.Message}");
+            }
+        }
+
 
         public void ReloadSettings()
         {
             _islandSettings = AppSettings.Load();
             InitializeDrinkWaterFeature();
             InitializeTodoFeature();
+            
+            // 尝试初始化通知监听器 (如果之前失败或未初始化)
+            InitializeNotificationListener();
+
             ApplyIslandOpacityForCurrentState();
             CheckCurrentSession();
+        }
+
+        public void ShowTestNotification()
+        {
+            Dispatcher.Invoke(() => ShowMessageNotification("测试通知: 功能正常"));
         }
 
         private void ApplyIslandOpacityForCurrentState()
         {
             if (DynamicIsland == null) return;
+
+            if (_isFocusModeActive)
+            {
+                DynamicIsland.BeginAnimation(UIElement.OpacityProperty, null);
+                DynamicIsland.Opacity = GetActiveOpacity();
+                return;
+            }
 
             bool isStandby = !_isNotificationActive &&
                              !_isFileStationActive &&
@@ -167,13 +583,13 @@ namespace WinIsland
                 var settings = AppSettings.Load();
                 if (settings.WindowLeft.HasValue && settings.WindowTop.HasValue)
                 {
-                    var left = settings.WindowLeft.Value;
-                    var top = settings.WindowTop.Value;
+                    var targetLeft = settings.WindowLeft.Value;
+                    var targetTop = settings.WindowTop.Value;
 
                     var maxLeft = Math.Max(0, screenWidth - this.Width);
                     var maxTop = Math.Max(0, screenHeight - this.Height);
-                    this.Left = Math.Max(0, Math.Min(left, maxLeft));
-                    this.Top = Math.Max(0, Math.Min(top, maxTop));
+                    this.Left = Math.Max(0, Math.Min(targetLeft, maxLeft));
+                    this.Top = Math.Max(0, Math.Min(targetTop, maxTop));
                 }
                 else
                 {
@@ -231,66 +647,250 @@ namespace WinIsland
             _notificationTimer.Tick += (s, e) => HideNotification();
         }
 
-        private async void InitializeNotificationListener()
+        private void InitializeNotificationListener()
+        {
+             InitializeDbNotificationReader();
+        }
+
+        private void InitializeDbNotificationReader()
+        {
+            if (_dbNotificationReader != null) return;
+            
+            try 
+            {
+                _dbNotificationReader = new DbNotificationReader();
+                _dbNotificationReader.NotificationReceived += OnDbNotificationReceived;
+
+                _dbNotificationCheckTimer = new DispatcherTimer();
+                _dbNotificationCheckTimer.Interval = TimeSpan.FromSeconds(2);
+                _dbNotificationCheckTimer.Tick += async (s, e) => 
+                {
+                     await _dbNotificationReader.CheckForNewNotificationsAsync();
+                };
+                _dbNotificationCheckTimer.Start();
+                LogDebug("DB Notification Reader Initialized");
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"DB Init Error: {ex.Message}");
+            }
+        }
+
+        private void InitializeNotificationInitRetry()
+        {
+            // Database watcher doesn't need complex retry logic
+        }
+
+        private async void OnDbNotificationReceived(object sender, NotificationItem item)
         {
             try
             {
-                if (!Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.UI.Notifications.Management.UserNotificationListener")) return;
+                var settings = GetSettings();
+                if (!settings.MessageNotificationEnabled) return;
 
-                _listener = UserNotificationListener.Current;
-                var accessStatus = await _listener.RequestAccessAsync();
+                string appName = item.AppName ?? "Unknown";
+                string appId = item.AppId ?? "";
 
-                if (accessStatus == UserNotificationListenerAccessStatus.Allowed)
+                // Focus Mode Filtering
+                if (_isFocusModeActive)
                 {
-                    _listener.NotificationChanged += Listener_NotificationChanged;
+                    if (!settings.FocusModeMessageEnabled) return;
+                    
+                    if (!settings.FocusModeAllowAllApps)
+                    {
+                        if (string.IsNullOrWhiteSpace(settings.FocusModeAllowedApps)) return; // None allowed
+                        
+                        var focusTokens = ParseNotificationWhitelist(settings.FocusModeAllowedApps);
+                        bool allowedInFocus = false;
+                        foreach (var token in focusTokens)
+                        {
+                            if ((!string.IsNullOrWhiteSpace(appName) && appName.Contains(token, StringComparison.OrdinalIgnoreCase)) ||
+                                (!string.IsNullOrWhiteSpace(appId) && appId.Contains(token, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                allowedInFocus = true;
+                                break;
+                            }
+                        }
+                        if (!allowedInFocus) return;
+                    }
+                }
+
+                // Reuse whitelist logic (Normal condition)
+                if (!IsNotificationSourceAllowed(appName, appId, settings)) return;
+                
+                string displayMsg = $"{item.Title}";
+                if (!string.IsNullOrWhiteSpace(item.Body)) displayMsg += $"\n{item.Body}";
+
+                LogDebug($"DB Notification: {appName} - {displayMsg}");
+                
+                // Try to get icon
+                ImageSource appIcon = await GetNotificationAppIconAsync(appId);
+
+                Dispatcher.Invoke(() => 
+                {
+                    ShowMessageNotification(displayMsg, appIcon);
+                });
+            }
+            catch (Exception ex)
+            {
+                LogDebug("Error showing notification: " + ex.Message);
+            }
+        }
+
+
+        private static List<string> ParseNotificationWhitelist(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return new List<string>();
+            return raw
+                .Split(new[] { ',', ';', '|', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private bool IsNotificationSourceAllowed(string appName, string appId, AppSettings settings)
+        {
+            if (settings.NotificationAllowAllApps) return true;
+
+            var tokens = ParseNotificationWhitelist(settings.NotificationAppWhitelist);
+            if (tokens.Count == 0) return false;
+
+            foreach (var token in tokens)
+            {
+                if (!string.IsNullOrWhiteSpace(appName) &&
+                    appName.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(appId) &&
+                    appId.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private async Task<ImageSource> GetNotificationAppIconAsync(string appId)
+        {
+             if (string.IsNullOrWhiteSpace(appId)) return null;
+             
+             // Check cache first (reuse _notificationAppIconCache or _audioSourceIconCache)
+             // Using _audioSourceIconCache for broader coverage or just _notificationAppIconCache
+             if (_notificationAppIconCache.TryGetValue(appId, out var cached)) return cached;
+
+             try
+             {
+                 // 1. Try UWP AppInfo if it looks like AUMID
+                 if (Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.ApplicationModel.AppInfo"))
+                 {
+                     try 
+                     {
+                         // AppInfo.GetFromAppUserModelId is available in newer Windows versions (10.0.17763+)
+                         // Our project targets 19041, so it should be fine.
+                         var appInfo = Windows.ApplicationModel.AppInfo.GetFromAppUserModelId(appId);
+                         if (appInfo != null)
+                         {
+                             var logoRef = appInfo.DisplayInfo.GetLogo(new Windows.Foundation.Size(48, 48));
+                             if (logoRef != null)
+                             {
+                                 using var stream = await logoRef.OpenReadAsync();
+                                 var bitmap = new BitmapImage();
+                                 bitmap.BeginInit();
+                                 bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                                 bitmap.StreamSource = stream.AsStream();
+                                 bitmap.EndInit();
+                                 bitmap.Freeze();
+                                 
+                                 _notificationAppIconCache[appId] = bitmap;
+                                 return bitmap;
+                             }
+                         }
+                     }
+                     catch { }
+                 }
+
+                 // 2. Fallback to Process/Exe extraction (reusing TryResolveSourceIcon logic)
+                 // TryResolveSourceIcon uses _audioSourceIconCache, might differ but logic is sound.
+                 if (TryResolveSourceIcon(appId, out var icon))
+                 {
+                     // Convert or just return
+                     return icon;
+                 }
+             }
+             catch { }
+
+             return null;
+        }
+
+        private async Task<ImageSource> TryGetNotificationAppIconAsync(UserNotification notif)
+        {
+             // Deprecated but kept for compatibility if needed, or redirect to new method
+             var appId = notif?.AppInfo?.Id;
+             if (string.IsNullOrWhiteSpace(appId)) return null;
+             return await GetNotificationAppIconAsync(appId);
+        }
+
+        private async void InitializeBluetoothRadioWatcher()
+        {
+            try
+            {
+                if (!Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.Devices.Radios.Radio")) return;
+
+                var accessStatus = await Radio.RequestAccessAsync();
+                if (accessStatus != RadioAccessStatus.Allowed)
+                {
+                    LogDebug($"Bluetooth radio access denied: {accessStatus}");
+                    return;
+                }
+
+                var radios = await Radio.GetRadiosAsync();
+                _bluetoothRadios.Clear();
+                _bluetoothRadioStateCache.Clear();
+
+                foreach (var radio in radios)
+                {
+                    if (radio.Kind != RadioKind.Bluetooth) continue;
+                    _bluetoothRadios.Add(radio);
+                    _bluetoothRadioStateCache[radio.Name] = radio.State;
+                    radio.StateChanged += BluetoothRadio_StateChanged;
+                    LogDebug($"Bluetooth radio watcher attached: {radio.Name}, state={radio.State}");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Notification Listener Error: {ex.Message}");
+                LogDebug($"InitializeBluetoothRadioWatcher Error: {ex.GetType().Name}, HResult={ex.HResult}, Msg={ex.Message}");
             }
         }
 
-        private void Listener_NotificationChanged(UserNotificationListener sender, UserNotificationChangedEventArgs args)
+        private void BluetoothRadio_StateChanged(Radio sender, object args)
         {
             try
             {
-                if (!GetSettings().MessageNotificationEnabled) return;
+                if (!GetSettings().BluetoothNotificationEnabled) return;
+                if (sender == null) return;
 
-                // 暂时移除 ChangeType 检查
-                var notifId = args.UserNotificationId;
-                var notif = _listener.GetNotification(notifId);
-                if (notif == null) return;
-
-                var appName = notif.AppInfo.DisplayInfo.DisplayName;
-                if (string.IsNullOrEmpty(appName)) return;
-
-                // 简单的过滤逻辑: 微信 或 QQ
-                bool isWeChat = appName.Contains("WeChat", StringComparison.OrdinalIgnoreCase) || appName.Contains("微信");
-                bool isQQ = appName.Contains("QQ", StringComparison.OrdinalIgnoreCase);
-
-                if (isWeChat || isQQ)
+                var radioName = string.IsNullOrWhiteSpace(sender.Name) ? "Bluetooth" : sender.Name;
+                var newState = sender.State;
+                if (_bluetoothRadioStateCache.TryGetValue(radioName, out var oldState) && oldState == newState)
                 {
-                    string displayMsg = $"{appName}: New Message";
-
-                    // 尝试获取详细内容
-                    try
-                    {
-                        var binding = notif.Notification.Visual.GetBinding(KnownNotificationBindings.ToastGeneric);
-                        if (binding != null)
-                        {
-                            var texts = binding.GetTextElements();
-                            string title = texts.Count > 0 ? texts[0].Text : appName;
-                            string body = texts.Count > 1 ? texts[1].Text : "New Message";
-                            displayMsg = $"{title}: {body}";
-                        }
-                    }
-                    catch { }
-                    
-                    Dispatcher.Invoke(() => ShowMessageNotification(displayMsg));
+                    return;
                 }
+
+                _bluetoothRadioStateCache[radioName] = newState;
+
+                bool isOn = newState == RadioState.On;
+                string title = isOn ? "蓝牙已开启" : "蓝牙已关闭";
+                LogDebug($"Bluetooth radio state changed: {radioName} -> {newState}");
+                Dispatcher.Invoke(() => ShowDeviceNotification(title, isOn));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogDebug($"BluetoothRadio_StateChanged Error: {ex.GetType().Name}, HResult={ex.HResult}, Msg={ex.Message}");
+            }
         }
 
         // 使用 Windows.Devices.Enumeration 替代 WMI，更加轻量且实时
@@ -540,7 +1140,14 @@ namespace WinIsland
 
         private void ShowDeviceNotification(string deviceName, bool isConnected)
         {
-            if (!GetSettings().BluetoothNotificationEnabled && !GetSettings().UsbNotificationEnabled) return;
+            var settings = GetSettings();
+            if (!settings.BluetoothNotificationEnabled && !settings.UsbNotificationEnabled) return;
+
+            if (_isFocusModeActive)
+            {
+                if (deviceName.StartsWith("Bluetooth", StringComparison.OrdinalIgnoreCase) && !settings.FocusModeBluetoothEnabled) return;
+                if (deviceName.StartsWith("USB", StringComparison.OrdinalIgnoreCase) && !settings.FocusModeUsbEnabled) return;
+            }
 
             ActivateNotification();
                     
@@ -552,6 +1159,7 @@ namespace WinIsland
                 IconConnect.Visibility = Visibility.Visible;
                 IconDisconnect.Visibility = Visibility.Collapsed;
                 IconMessage.Visibility = Visibility.Collapsed;
+                NotificationAppIconBorder.Visibility = Visibility.Collapsed;
                 NotificationText.Foreground = new SolidColorBrush(Color.FromRgb(0, 255, 204)); // Green
             }
             else
@@ -559,13 +1167,14 @@ namespace WinIsland
                 IconConnect.Visibility = Visibility.Collapsed;
                 IconDisconnect.Visibility = Visibility.Visible;
                 IconMessage.Visibility = Visibility.Collapsed;
+                NotificationAppIconBorder.Visibility = Visibility.Collapsed;
                 NotificationText.Foreground = new SolidColorBrush(Color.FromRgb(255, 51, 51)); // Red
             }
 
             PlayFlipAnimation();
         }
 
-        private void ShowMessageNotification(string message)
+        private void ShowMessageNotification(string message, ImageSource appIcon = null)
         {
             if (!GetSettings().MessageNotificationEnabled) return;
 
@@ -573,9 +1182,70 @@ namespace WinIsland
 
             NotificationText.Text = message;
             
+            // Adjust width and height based on text content
+            try
+            {
+                double iconWidth = 36 + 12; // Icon 36 + Margin 12
+                double hPadding = 30; // Horizontal Padding
+                double maxTextWidth = 320; // Threshold for wrapping
+                
+                NotificationText.MaxWidth = maxTextWidth;
+
+                var typeface = new Typeface(NotificationText.FontFamily, NotificationText.FontStyle, NotificationText.FontWeight, NotificationText.FontStretch);
+                var formatted = new FormattedText(
+                    message,
+                    CultureInfo.CurrentUICulture,
+                    FlowDirection.LeftToRight,
+                    typeface,
+                    NotificationText.FontSize,
+                    System.Windows.Media.Brushes.Black,
+                    VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+                if (formatted.Width > maxTextWidth)
+                {
+                    // Multi-line mode
+                    formatted.MaxTextWidth = maxTextWidth;
+                    
+                    double finalWidth = iconWidth + formatted.Width + hPadding;
+                    finalWidth = Math.Min(finalWidth, 500); // Hard cap
+                    
+                    _widthSpring.Target = finalWidth;
+                    
+                    // Height calculation
+                    double finalHeight = Math.Max(50, formatted.Height + 24); // 24 vertical padding
+                    _heightSpring.Target = finalHeight;
+                }
+                else
+                {
+                    // Single line mode
+                    double finalWidth = iconWidth + formatted.Width + hPadding;
+                    finalWidth = Math.Clamp(finalWidth, 200, 600);
+                    
+                    _widthSpring.Target = finalWidth;
+                    _heightSpring.Target = 50; // Reset to default height
+                }
+            }
+            catch 
+            {
+                 // Fallback
+                 _widthSpring.Target = 320;
+                 _heightSpring.Target = 50;
+            }
+
             IconConnect.Visibility = Visibility.Collapsed;
             IconDisconnect.Visibility = Visibility.Collapsed;
-            IconMessage.Visibility = Visibility.Visible;
+            if (appIcon != null)
+            {
+                NotificationAppIcon.Source = appIcon;
+                NotificationAppIconBorder.Visibility = Visibility.Visible;
+                IconMessage.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                NotificationAppIcon.Source = null;
+                NotificationAppIconBorder.Visibility = Visibility.Collapsed;
+                IconMessage.Visibility = Visibility.Visible;
+            }
             NotificationText.Foreground = new SolidColorBrush(Color.FromRgb(0, 191, 255)); // DeepSkyBlue
 
             PlayFlipAnimation();
@@ -595,6 +1265,8 @@ namespace WinIsland
             DrinkWaterPanel.Visibility = Visibility.Collapsed;
             TodoPanel.Visibility = Visibility.Collapsed;
             FileStationPanel.Visibility = Visibility.Collapsed;
+            SystemStatsPanel.Visibility = Visibility.Collapsed;
+            if (_systemStatsTimer != null) _systemStatsTimer.Stop();
 
             DynamicIsland.IsHitTestVisible = true; // 允许鼠标交互
             SetClickThrough(false); // 激活通知时允许交互
@@ -603,8 +1275,8 @@ namespace WinIsland
             DynamicIsland.BeginAnimation(UIElement.OpacityProperty, null);
             DynamicIsland.Opacity = GetActiveOpacity();
 
-            // 设定通知尺寸
-            _widthSpring.Target = 320;
+            // 设定通知尺寸 - 这里只设默认高度，宽度由后续逻辑动态计算
+            // _widthSpring.Target = 320; // Removed default width
             _heightSpring.Target = 50;
 
             // 内容淡入动画
@@ -734,6 +1406,7 @@ namespace WinIsland
                 private void DrinkWaterScheduler_Tick(object sender, EventArgs e)
         {
             if (_islandSettings == null || !_islandSettings.DrinkWaterEnabled) return;
+            if (_isFocusModeActive && !_islandSettings.FocusModeDrinkWaterEnabled) return;
 
             if (_islandSettings.DrinkWaterMode == DrinkWaterMode.Interval)
             {
@@ -870,6 +1543,7 @@ namespace WinIsland
         private void TodoScheduler_Tick(object sender, EventArgs e)
         {
             if (_islandSettings == null || !_islandSettings.TodoEnabled || _islandSettings.TodoList == null) return;
+            if (_isFocusModeActive && !_islandSettings.FocusModeTodoEnabled) return;
 
             var now = DateTime.Now;
             
@@ -1075,6 +1749,8 @@ namespace WinIsland
             _playbackStatusTimer.Interval = TimeSpan.FromMilliseconds(500);
             _playbackStatusTimer.Tick += (s, e) =>
             {
+                var settings = GetSettings();
+                if (_isFocusModeActive && !settings.FocusModeShowMediaPlayer && !settings.FocusModeShowVisualizer) return;
                 try
                 {
                     if (_mediaManager == null) return;
@@ -1101,6 +1777,9 @@ namespace WinIsland
                         _currentSession.MediaPropertiesChanged += async (sender, args) => await UpdateMediaInfo(sender);
                         _currentSession.PlaybackInfoChanged += (sender, args) => UpdatePlaybackStatus(sender);
                         _ = UpdateMediaInfo(_currentSession);
+                        
+                        // 确保系统参数隐藏 (如果有)
+                        Dispatcher.Invoke(HideSystemStatsPanel);
                     }
 
                     UpdatePlaybackStatus(session);
@@ -1171,6 +1850,9 @@ namespace WinIsland
 
         private void CheckCurrentSession()
         {
+            var settings = GetSettings();
+            if (_isFocusModeActive && !settings.FocusModeShowMediaPlayer && !settings.FocusModeShowVisualizer) return;
+
             // 如果正在显示通知，不要打断它，等通知结束后会自动调用此方法
             if (_isNotificationActive) return;
 
@@ -1227,27 +1909,55 @@ namespace WinIsland
 
         private void EnterStandbyMode()
         {
-            _currentSession = null;
-            _widthSpring.Target = 120;
-            _heightSpring.Target = 35;
-            
+            var settings = GetSettings();
+            if (_isFocusModeActive && !settings.FocusModeSystemStatsEnabled)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    _currentSession = null;
+                    HideAllMediaElements();
+                    HideSystemStatsPanel();
+                    FocusModePanel.Visibility = Visibility.Visible;
+                    ApplyIslandOpacityForCurrentState();
+                });
+                return;
+            }
             Dispatcher.Invoke(() =>
             {
+                _currentSession = null;
+                // Ensure complete stop
+                _isPlaying = false;
+                _currentVolume = 0;
+                
+                // Clean up UI
                 HideAllMediaElements();
-                NotificationPanel.Visibility = Visibility.Collapsed;
-                DrinkWaterPanel.Visibility = Visibility.Collapsed;
-                TodoPanel.Visibility = Visibility.Collapsed;
-                FileStationPanel.Visibility = Visibility.Collapsed;
+                if (FocusModePanel != null) FocusModePanel.Visibility = Visibility.Collapsed;
                 
-                // 启用交互以支持文件拖放
-                DynamicIsland.IsHitTestVisible = true;
-                SetClickThrough(false); 
-                
-                // 清除可能存在的动画锁定，确保透明度设置生效
-                DynamicIsland.BeginAnimation(UIElement.OpacityProperty, null);
-                DynamicIsland.Opacity = GetStandbyOpacity(); // 待机透明度
+                // System stats logic
+                if (settings.SystemStatsEnabled)
+                {
+                    if (_systemStatsTimer != null && !_systemStatsTimer.IsEnabled) _systemStatsTimer.Start();
+                    
+                    SystemStatsPanel.Visibility = Visibility.Visible;
+                    
+                    // 稍微宽一点以容纳文字 (CPU + RAM + Net) -> 需要更宽
+                    double requiredWidth = Math.Max(settings.StandbyWidth, 230); 
+                    _widthSpring.Target = requiredWidth;
+                    _heightSpring.Target = settings.StandbyHeight;
+                    
+                    // 立即更新一次
+                    UpdateSystemStats(null, null);
+                }
+                else
+                {
+                    if (_systemStatsTimer != null) _systemStatsTimer.Stop();
+                    SystemStatsPanel.Visibility = Visibility.Collapsed;
+                    _widthSpring.Target = settings.StandbyWidth;
+                    _heightSpring.Target = settings.StandbyHeight;
+                }
+
+                ApplyIslandOpacityForCurrentState();
             });
-           
         }
 
         private void ApplyMediaLayout(bool showMedia, bool hasLyric)
@@ -1605,6 +2315,15 @@ namespace WinIsland
             ProgressArea.Visibility = Visibility.Collapsed;
             ControlPanel.Visibility = Visibility.Collapsed;
             VisualizerContainer.Visibility = Visibility.Collapsed;
+        }
+
+        private void HideSystemStatsPanel()
+        {
+            if (SystemStatsPanel != null)
+            {
+                SystemStatsPanel.Visibility = Visibility.Collapsed;
+            }
+            _systemStatsTimer?.Stop();
         }
 
         private void ApplyLyricText(string lyricText, bool showMedia)
@@ -2071,6 +2790,9 @@ namespace WinIsland
 
         private async Task UpdateMediaInfo(GlobalSystemMediaTransportControlsSession session)
         {
+            var settings = GetSettings();
+            // In focus mode, we need either media player or visualizer enabled to proceed
+            if (_isFocusModeActive && !settings.FocusModeShowMediaPlayer && !settings.FocusModeShowVisualizer) return;
             if (IsMediaSuppressed()) return;
             if (ShouldSuppressMediaForManualStandby(session))
             {
@@ -2086,14 +2808,18 @@ namespace WinIsland
                     if (info != null)
                     {
                         var settings = GetSettings();
-                        bool showMedia = settings.ShowMediaPlayer;
-                        bool showVisualizer = settings.ShowVisualizer;
+                        bool showMedia = _isFocusModeActive ? settings.FocusModeShowMediaPlayer : settings.ShowMediaPlayer;
+                        bool showVisualizer = _isFocusModeActive ? settings.FocusModeShowVisualizer : settings.ShowVisualizer;
 
                         if (!showMedia && !showVisualizer)
                         {
                             EnterStandbyMode();
                             return;
                         }
+
+                        // 进入媒体态时，强制退出待机系统参数面板，避免两者叠加显示。
+                        HideSystemStatsPanel();
+                        if (FocusModePanel != null) FocusModePanel.Visibility = Visibility.Collapsed;
 
                         var newTitle = info.Title;
                         var newArtist = info.Artist;
@@ -2168,6 +2894,8 @@ namespace WinIsland
 
         private void UpdatePlaybackStatus(GlobalSystemMediaTransportControlsSession session)
         {
+            var settings = GetSettings();
+            if (_isFocusModeActive && !settings.FocusModeShowMediaPlayer && !settings.FocusModeShowVisualizer) return;
             if (_isNotificationActive) return;
             if (ShouldSuppressMediaForManualStandby(session))
             {
@@ -2182,7 +2910,8 @@ namespace WinIsland
                 {
                     _isPlaying = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                     var settings = GetSettings();
-                    var allowVisualizer = settings.ShowVisualizer && _isPlaying && !_isExpanded;
+                    bool showVisSetting = _isFocusModeActive ? settings.FocusModeShowVisualizer : settings.ShowVisualizer;
+                    var allowVisualizer = showVisSetting && _isPlaying && !_isExpanded;
 
                     if (info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                     {
@@ -2197,6 +2926,10 @@ namespace WinIsland
 
                     if (VisualizerContainer != null)
                     {
+                        if (allowVisualizer || settings.ShowMediaPlayer)
+                        {
+                            HideSystemStatsPanel();
+                        }
                         VisualizerContainer.Visibility = allowVisualizer ? Visibility.Visible : Visibility.Collapsed;
                         if (!allowVisualizer) ResetVisualizer();
                     }
@@ -2208,9 +2941,10 @@ namespace WinIsland
         #region 4. 物理与渲染
         private void InitializePhysics()
         {
-            _widthSpring = new Spring(120);
-            _heightSpring = new Spring(35);
-            _lastFrameTime = DateTime.Now;
+            var settings = GetSettings();
+            _widthSpring = new Spring(settings.StandbyWidth);
+            _heightSpring = new Spring(settings.StandbyHeight);
+            
             CompositionTarget.Rendering += OnRendering;
         }
 
@@ -2312,6 +3046,14 @@ namespace WinIsland
 
             if (e.LeftButton == System.Windows.Input.MouseButtonState.Pressed)
             {
+                var now = DateTime.Now;
+                if ((now - _lastFocusDoubleClickTime).TotalMilliseconds < 300)
+                {
+                    ToggleFocusMode();
+                    _lastFocusDoubleClickTime = DateTime.MinValue;
+                    return;
+                }
+                _lastFocusDoubleClickTime = now;
                 BeginSwipeTracking(e);
             }
         }
@@ -2517,6 +3259,15 @@ namespace WinIsland
 
         private void DynamicIsland_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
         {
+            if (_isFocusModeActive)
+            {
+                FocusControls.Visibility = Visibility.Visible;
+                // Expand for better interaction
+                var settings = GetSettings();
+                _widthSpring.Target = Math.Max(settings.StandbyWidth, 200);
+                _heightSpring.Target = Math.Max(settings.StandbyHeight, 45);
+                return;
+            }
             if (AlbumCover.Visibility != Visibility.Visible) return;
 
             _isExpanded = true;
@@ -2558,6 +3309,15 @@ namespace WinIsland
 
         private void DynamicIsland_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
         {
+            if (_isFocusModeActive)
+            {
+                FocusControls.Visibility = Visibility.Collapsed;
+                // Restore normal focus mode size
+                var settings = GetSettings();
+                _widthSpring.Target = Math.Max(settings.StandbyWidth, 140);
+                _heightSpring.Target = settings.StandbyHeight;
+                return;
+            }
             if (AlbumCover.Visibility != Visibility.Visible) return;
 
             _isExpanded = false;
