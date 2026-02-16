@@ -15,6 +15,10 @@
         ShowInTaskbar="False"
         WindowStartupLocation="Manual"
         AllowDrop="True"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         Left="0"
         Top="0">
 
@@ -430,6 +434,25 @@
                         </Button>
                     </StackPanel>
                 </Grid>
+
+                <!-- AI 陪伴助手区域 -->
+                <Grid x:Name="AiCompanionPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed" Margin="10,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0" Width="20" Height="20" Margin="5,0,8,0" VerticalAlignment="Center">
+                        <Path Data="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z" Fill="#A8E6CF" Stretch="Uniform">
+                            <Path.Effect>
+                                <DropShadowEffect Color="#A8E6CF" BlurRadius="6" ShadowDepth="0" Opacity="0.5"/>
+                            </Path.Effect>
+                        </Path>
+                    </Grid>
+
+                    <TextBlock x:Name="TxtAiCompanionMessage" Grid.Column="1" Text="AI 助手就绪" Foreground="White" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </Grid>
+
 
 
 

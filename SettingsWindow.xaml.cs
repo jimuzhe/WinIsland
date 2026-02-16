@@ -86,7 +86,18 @@ namespace WinIsland
             ChkFocusModeShowDrinkWater.IsChecked = settings.FocusModeDrinkWaterEnabled;
             ChkFocusModeShowSedentary.IsChecked = settings.FocusModeSedentaryEnabled;
             ChkFocusModeShowTodo.IsChecked = settings.FocusModeTodoEnabled;
+            ChkFocusModeAi.IsChecked = settings.FocusModeAiEnabled;
+            ChkAutoFocusEnabled.IsChecked = settings.AutoFocusEnabled;
+            TxtAutoFocusApps.Text = settings.AutoFocusApps ?? "";
             UpdateFocusChart();
+
+            // AI 助手
+            ChkAiEnabled.IsChecked = settings.AiCompanionEnabled;
+            TxtAiApiKey.Text = settings.AiApiKey ?? "";
+            TxtAiEndpoint.Text = settings.AiEndpoint ?? "";
+            TxtAiModel.Text = settings.AiModel ?? "";
+            TxtAiSystemPrompt.Text = settings.AiSystemPrompt ?? "";
+
             _isLoading = false;
         }
 
@@ -144,6 +155,16 @@ namespace WinIsland
             settings.FocusModeDrinkWaterEnabled = ChkFocusModeShowDrinkWater.IsChecked == true;
             settings.FocusModeSedentaryEnabled = ChkFocusModeShowSedentary.IsChecked == true;
             settings.FocusModeTodoEnabled = ChkFocusModeShowTodo.IsChecked == true;
+            settings.FocusModeAiEnabled = ChkFocusModeAi.IsChecked == true;
+            settings.AutoFocusEnabled = ChkAutoFocusEnabled.IsChecked == true;
+            settings.AutoFocusApps = TxtAutoFocusApps.Text ?? "";
+
+            // AI 助手
+            settings.AiCompanionEnabled = ChkAiEnabled.IsChecked == true;
+            settings.AiApiKey = TxtAiApiKey.Text ?? "";
+            settings.AiEndpoint = TxtAiEndpoint.Text ?? "";
+            settings.AiModel = TxtAiModel.Text ?? "";
+            settings.AiSystemPrompt = TxtAiSystemPrompt.Text ?? "";
 
             settings.Save();
 
@@ -207,6 +228,7 @@ namespace WinIsland
             PanelHealth.Visibility = target == "PanelHealth" ? Visibility.Visible : Visibility.Collapsed;
             PanelTodo.Visibility = target == "PanelTodo" ? Visibility.Visible : Visibility.Collapsed;
             PanelFocus.Visibility = target == "PanelFocus" ? Visibility.Visible : Visibility.Collapsed;
+            PanelAi.Visibility = target == "PanelAi" ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void BtnTestNotification_Click(object sender, RoutedEventArgs e)
@@ -482,16 +504,40 @@ namespace WinIsland
                 var settings = AppSettings.Load();
                 var history = settings.FocusHistory ?? new List<FocusSession>();
                 
+                // 计算历史总时长
+                double totalHistorySeconds = history.Sum(s => s.DurationSeconds);
+                TxtTotalFocusTime.Text = FormatFocusDuration(totalHistorySeconds);
+
+                // 计算今日最活跃段
                 var today = DateTime.Today;
+                var todaySessions = history.Where(s => s.StartTime.Date == today).ToList();
+                if (todaySessions.Count > 0)
+                {
+                    // 按小时统计
+                    var hourlyStats = todaySessions
+                        .GroupBy(s => s.StartTime.Hour)
+                        .Select(g => new { Hour = g.Key, Total = g.Sum(s => s.DurationSeconds) })
+                        .OrderByDescending(x => x.Total)
+                        .FirstOrDefault();
+                    
+                    if (hourlyStats != null)
+                    {
+                        TxtActivePeriod.Text = $"{hourlyStats.Hour}:00 - {hourlyStats.Hour + 1}:00";
+                    }
+                }
+                else
+                {
+                    TxtActivePeriod.Text = "暂无数据";
+                }
+
                 var chartData = new List<FocusChartItem>();
                 
                 // 计算最近 7 天 (含今天)
                 for (int i = 6; i >= 0; i--)
                 {
                     var date = today.AddDays(-i);
-                    var totalSeconds = history
-                        .Where(s => s.StartTime.Date == date)
-                        .Sum(s => s.DurationSeconds);
+                    var daySessions = history.Where(s => s.StartTime.Date == date).ToList();
+                    var totalSeconds = daySessions.Sum(s => s.DurationSeconds);
                     
                     // 假设 2 小时 (7200s) 为 100% 高度 (100)
                     double barHeight = Math.Min(100, (totalSeconds / 7200.0) * 100);

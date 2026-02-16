@@ -42,7 +42,17 @@ namespace WinIsland
         public bool FocusModeDrinkWaterEnabled { get; set; } = false;
         public bool FocusModeSedentaryEnabled { get; set; } = false;
         public bool FocusModeTodoEnabled { get; set; } = false;
+        public bool FocusModeAiEnabled { get; set; } = false;
+        public bool AutoFocusEnabled { get; set; } = false;
+        public string AutoFocusApps { get; set; } = "devenv,Code";
         public List<FocusSession> FocusHistory { get; set; } = new List<FocusSession>();
+
+        // AI Companion Settings
+        public bool AiCompanionEnabled { get; set; } = false;
+        public string AiApiKey { get; set; } = "";
+        public string AiEndpoint { get; set; } = "https://api.openai.com/v1";
+        public string AiModel { get; set; } = "gpt-3.5-turbo";
+        public string AiSystemPrompt { get; set; } = "你是一个贴心的灵动岛小助手。用户正在使用某个应用，请根据应用名称给出简短、温暖或有趣的陪伴话语(不超过20字)。";
 
         private static string ConfigPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 

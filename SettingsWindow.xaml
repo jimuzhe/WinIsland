@@ -12,6 +12,10 @@
         AllowsTransparency="True"
         FontFamily="Bahnschrift"
         FontSize="13"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         MouseDown="Window_MouseDown">
 
     <Window.Resources>
@@ -83,6 +87,36 @@
         <Style x:Key="CaptionStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
             <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- ScrollBar Style -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid x:Name="Bg" Background="Transparent" SnapsToDevicePixels="true">
+                            <Track x:Name="PART_Track" IsDirectionReversed="true" IsEnabled="{TemplateBinding IsMouseOver}">
+                                <Track.Thumb>
+                                    <Thumb x:Name="Thumb">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border Background="#44FFFFFF" CornerRadius="4" Margin="2,0"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="true">
+                                <Setter TargetName="PART_Track" Property="Width" Value="8"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- Navigation -->
@@ -274,6 +308,7 @@
                             <RadioButton x:Name="NavHealth" Content="健康" GroupName="NavGroup" Checked="Nav_Checked" Tag="PanelHealth" Style="{StaticResource NavItemStyle}"/>
                             <RadioButton x:Name="NavTodo" Content="待办" GroupName="NavGroup" Checked="Nav_Checked" Tag="PanelTodo" Style="{StaticResource NavItemStyle}"/>
                             <RadioButton x:Name="NavFocus" Content="专注" GroupName="NavGroup" Checked="Nav_Checked" Tag="PanelFocus" Style="{StaticResource NavItemStyle}"/>
+                            <RadioButton x:Name="NavAi" Content="AI 助手" GroupName="NavGroup" Checked="Nav_Checked" Tag="PanelAi" Style="{StaticResource NavItemStyle}"/>
                         </StackPanel>
                     </Border>
 
@@ -286,34 +321,26 @@
                                     <TextBlock Text="专注模式" Style="{StaticResource SectionHeaderStyle}"/>
                                     <TextBlock Text="双击灵动岛进入专注状态。在此状态下，非允许的应用通知将被过滤。" Style="{StaticResource CaptionStyle}" Margin="0,0,0,12" TextWrapping="Wrap"/>
                                     
-                                    <Border Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12">
-                                        <StackPanel>
-                                            <TextBlock Text="专注期间通知控制 (过滤逻辑)" Style="{StaticResource CaptionStyle}" Margin="0,0,0,8"/>
-                                            <CheckBox x:Name="ChkFocusModeBluetooth" Content="允许蓝牙设备通知" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeUsb" Content="允许 USB 设备通知" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeMessage" Content="允许微信 / QQ 消息" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeAllowAllApps" Content="允许所有其他应用通知" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            
-                                            <Border BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,10"/>
-                                            
-                                            <TextBlock Text="专注期间允许的通知关键字 (白名单, 逗号分隔)" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" Margin="0,0,0,8"/>
-                                            <TextBox x:Name="TxtFocusModeAllowedApps" Height="60" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" LostFocus="AutoSave_LostFocus" Margin="0,0,5,0"/>
-                                            <TextBlock Text="例如: 钉钉, 企业微信, 电话" FontSize="11" Foreground="#666666" Margin="0,4,0,12"/>
-
-                                            <Border BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,10"/>
-
-                                            <TextBlock Text="专注期间显示的交互项" Style="{StaticResource CaptionStyle}" Margin="0,0,0,8"/>
-                                            <CheckBox x:Name="ChkFocusModeShowMediaPlayer" Content="显示媒体播放器" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeShowVisualizer" Content="显示音频可视化" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeShowSystemStats" Content="显示系统参数 (CPU/RAM)" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeShowDrinkWater" Content="显示喝水提醒" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeShowSedentary" Content="显示久坐提醒" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                            <CheckBox x:Name="ChkFocusModeShowTodo" Content="显示待办提醒" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
-                                        </StackPanel>
-                                    </Border>
-                                    <Border Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,12,0,0">
+                                    <Border Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
                                         <StackPanel>
                                             <TextBlock Text="专注统计 (最近 7 天)" Style="{StaticResource SectionHeaderStyle}"/>
+                                            
+                                            <!-- 新增统计数据概览 -->
+                                            <Grid Margin="0,0,0,15">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="历史总专注" Style="{StaticResource CaptionStyle}"/>
+                                                    <TextBlock x:Name="TxtTotalFocusTime" Text="0小时 0分" FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,2,0,0"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="今日最活跃段" Style="{StaticResource CaptionStyle}"/>
+                                                    <TextBlock x:Name="TxtActivePeriod" Text="暂无数据" FontSize="18" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"/>
+                                                </StackPanel>
+                                            </Grid>
+
                                             <Grid Height="130" Margin="0,10,0,5">
                                                 <ItemsControl x:Name="ChartFocusHistory" HorizontalAlignment="Stretch">
                                                     <ItemsControl.ItemsPanel>
@@ -340,8 +367,71 @@
                                             </Grid>
                                         </StackPanel>
                                     </Border>
+
+                                    <Border Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
+                                        <StackPanel>
+                                            <TextBlock Text="自动开启专注" Style="{StaticResource SectionHeaderStyle}"/>
+                                            <CheckBox x:Name="ChkAutoFocusEnabled" Content="启用自动专注" FontWeight="SemiBold" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <TextBlock Text="当以下进程处于活动窗口时，自动进入专注模式；离开时自动暂停。" Style="{StaticResource CaptionStyle}" Margin="0,4,0,8" TextWrapping="Wrap"/>
+                                            <TextBox x:Name="TxtAutoFocusApps" Height="40" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" LostFocus="AutoSave_LostFocus" Margin="0,0,0,4"/>
+                                            <TextBlock Text="进程名(不含.exe)，多个用逗号分隔。如: devenv, Code, Photoshop" FontSize="11" Foreground="#666666"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12">
+                                        <StackPanel>
+                                            <TextBlock Text="专注期间通知控制 (过滤逻辑)" Style="{StaticResource CaptionStyle}" Margin="0,0,0,8"/>
+                                            <CheckBox x:Name="ChkFocusModeBluetooth" Content="允许蓝牙设备通知" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeUsb" Content="允许 USB 设备通知" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeMessage" Content="允许微信 / QQ 消息" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeAllowAllApps" Content="允许所有其他应用通知" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            
+                                            <Border BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Margin="0,10,0,10"/>
+                                            
+                                            <TextBlock Text="专注期间允许的通知关键字 (白名单, 逗号分隔)" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" Margin="0,0,0,8"/>
+                                            <TextBox x:Name="TxtFocusModeAllowedApps" Height="60" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" LostFocus="AutoSave_LostFocus" Margin="0,0,5,0"/>
+                                            <TextBlock Text="例如: 钉钉, 企业微信, 电话" FontSize="11" Foreground="#666666" Margin="0,4,0,12"/>
+                                            <Border BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,10"/>
+                                            <TextBlock Text="专注期间显示的交互项" Style="{StaticResource CaptionStyle}" Margin="0,0,0,8"/>
+                                            <CheckBox x:Name="ChkFocusModeShowMediaPlayer" Content="显示媒体播放器" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeShowVisualizer" Content="显示音频可视化" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeShowSystemStats" Content="显示系统参数 (CPU/RAM)" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeShowDrinkWater" Content="显示喝水提醒" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeShowSedentary" Content="显示久坐提醒" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeShowTodo" Content="显示待办提醒" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                            <CheckBox x:Name="ChkFocusModeAi" Content="显示 AI 陪伴消息" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed"/>
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                             </ScrollViewer>
+
+                            <!-- AI 助手 -->
+                            <ScrollViewer x:Name="PanelAi" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel>
+                                    <TextBlock Text="AI 陪伴助手" Style="{StaticResource SectionHeaderStyle}"/>
+                                    <TextBlock Text="让 AI 感知你当前使用的应用，在灵动岛上给予温柔陪伴。" Style="{StaticResource CaptionStyle}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                                    <Border Background="{StaticResource CardAltBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="10" Padding="12">
+                                        <StackPanel>
+                                            <CheckBox x:Name="ChkAiEnabled" Content="开启 AI 陪伴" Checked="AutoSave_Changed" Unchecked="AutoSave_Changed" Margin="0,0,0,10"/>
+                                            
+                                            <TextBlock Text="API Key" Style="{StaticResource CaptionStyle}" Margin="0,5,0,5"/>
+                                            <TextBox x:Name="TxtAiApiKey" Margin="0,0,0,10" LostFocus="AutoSave_LostFocus"/>
+
+                                            <TextBlock Text="API 端点 (Base URL)" Style="{StaticResource CaptionStyle}" Margin="0,5,0,5"/>
+                                            <TextBox x:Name="TxtAiEndpoint" Margin="0,0,0,10" LostFocus="AutoSave_LostFocus"/>
+
+                                            <TextBlock Text="模型名称" Style="{StaticResource CaptionStyle}" Margin="0,5,0,5"/>
+                                            <TextBox x:Name="TxtAiModel" Margin="0,0,0,10" LostFocus="AutoSave_LostFocus"/>
+
+                                            <TextBlock Text="系统提示词 (Prompt)" Style="{StaticResource CaptionStyle}" Margin="0,5,0,5"/>
+                                            <TextBox x:Name="TxtAiSystemPrompt" Height="80" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" LostFocus="AutoSave_LostFocus"/>
+                                            <TextBlock Text="可用变量: {AppName} 表示当前应用名" FontSize="11" Foreground="#666666" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+
 
                             <!-- 通知 -->
                             <ScrollViewer x:Name="PanelNotify" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

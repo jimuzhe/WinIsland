@@ -29,6 +29,7 @@ using Application = System.Windows.Application;
 using System.Windows.Media.Effects; // Screen
 using System.Text.RegularExpressions;
 using Windows.Devices.Radios;
+using System.Runtime.InteropServices;
 
 namespace WinIsland
 {
@@ -118,6 +119,17 @@ namespace WinIsland
         private TimeSpan _accumulatedFocusTime = TimeSpan.Zero;
         private DispatcherTimer _focusTimer;
         private DateTime _lastFocusDoubleClickTime = DateTime.MinValue;
+
+        // AI 陪伴助手
+        private DispatcherTimer _aiCompanionTimer;
+        private string _lastForegroundApp = "";
+        private bool _isAiBusy = false;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         private void InitializeSystemStats()
         {
@@ -293,6 +305,7 @@ namespace WinIsland
 
             LogDebug("Focus Mode Started");
             UpdateFocusUI();
+            UpdateAiCompanionVisibility();
         }
 
         private void StopFocusMode()
@@ -324,6 +337,7 @@ namespace WinIsland
 
             // Restore visibility
             CheckCurrentSession();
+            UpdateAiCompanionVisibility();
 
             LogDebug("Focus Mode Stopped. Total duration: " + duration);
         }
@@ -350,6 +364,28 @@ namespace WinIsland
             if (!_isFocusModeActive) return TimeSpan.Zero;
             if (_isFocusModePaused) return _accumulatedFocusTime;
             return _accumulatedFocusTime + (DateTime.Now - _focusStartTime);
+        }
+
+        private void PauseFocusMode()
+        {
+            if (_isFocusModeActive && !_isFocusModePaused)
+            {
+                _isFocusModePaused = true;
+                _accumulatedFocusTime += (DateTime.Now - _focusStartTime);
+                _focusTimer.Stop();
+                LogDebug("Focus Mode Paused (Auto)");
+            }
+        }
+
+        private void ResumeFocusMode()
+        {
+            if (_isFocusModeActive && _isFocusModePaused)
+            {
+                _isFocusModePaused = false;
+                _focusStartTime = DateTime.Now;
+                _focusTimer.Start();
+                LogDebug("Focus Mode Resumed (Auto)");
+            }
         }
 
         private void BtnPauseFocus_Click(object sender, RoutedEventArgs e)
@@ -436,6 +472,10 @@ namespace WinIsland
             InitializeMediaListener();
             InitializeAudioCapture();
             InitializeSedentaryCheck();
+            InitializeTodoFeature();
+            InitializeAiCompanion();
+            
+            _lastFrameTime = DateTime.Now;
 
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -457,7 +497,6 @@ namespace WinIsland
             InitializeBluetoothRadioWatcher();
             InitializeNotificationTimer();
             InitializeDrinkWaterFeature();
-            InitializeTodoFeature();
             InitializeSystemStats();
         }
 
@@ -540,8 +579,9 @@ namespace WinIsland
             _islandSettings = AppSettings.Load();
             InitializeDrinkWaterFeature();
             InitializeTodoFeature();
-            
-            // 尝试初始化通知监听器 (如果之前失败或未初始化)
+    InitializeAiCompanion();
+    
+    // 尝试初始化通知监听器 (如果之前失败或未初始化)
             InitializeNotificationListener();
 
             ApplyIslandOpacityForCurrentState();
@@ -1919,6 +1959,7 @@ namespace WinIsland
                     HideSystemStatsPanel();
                     FocusModePanel.Visibility = Visibility.Visible;
                     ApplyIslandOpacityForCurrentState();
+                    UpdateAiCompanionVisibility();
                 });
                 return;
             }
@@ -1957,6 +1998,7 @@ namespace WinIsland
                 }
 
                 ApplyIslandOpacityForCurrentState();
+                UpdateAiCompanionVisibility();
             });
         }
 
@@ -2885,10 +2927,11 @@ namespace WinIsland
                         DynamicIsland.Opacity = GetActiveOpacity();
 
                         if (showMedia && info.Thumbnail != null) LoadThumbnail(info.Thumbnail);
+                        UpdateAiCompanionVisibility();
                     }
                 });
             }
-            catch { CheckCurrentSession(); }
+            catch (Exception ex) { LogDebug($"UpdateMediaInfo Error: {ex.Message}"); CheckCurrentSession(); }
         }
         #endregion
 
@@ -3823,6 +3866,189 @@ namespace WinIsland
         private class ApiLyricModel
         {
             public string Lyric { get; set; }
+        }
+        private void InitializeAiCompanion()
+        {
+            var settings = GetSettings();
+            if (_aiCompanionTimer == null)
+            {
+                _aiCompanionTimer = new DispatcherTimer();
+                _aiCompanionTimer.Interval = TimeSpan.FromSeconds(5); // 每5秒检查一次活动窗口
+                _aiCompanionTimer.Tick += AiCompanionTimer_Tick;
+            }
+
+            if (settings.AiCompanionEnabled)
+            {
+                _aiCompanionTimer.Start();
+            }
+            else
+            {
+                _aiCompanionTimer.Stop();
+                AiCompanionPanel.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private async void AiCompanionTimer_Tick(object sender, EventArgs e)
+        {
+            var settings = GetSettings();
+            string currentApp = GetForegroundAppName();
+            
+            // 1. 自动专注逻辑
+            if (settings.AutoFocusEnabled && !string.IsNullOrEmpty(currentApp))
+            {
+                var autoFocusApps = settings.AutoFocusApps?.Split(new[] { ',', '，' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(a => a.Trim())
+                    .ToList() ?? new List<string>();
+
+                bool shouldFocus = autoFocusApps.Any(a => currentApp.Contains(a, StringComparison.OrdinalIgnoreCase));
+
+                if (shouldFocus)
+                {
+                    if (!_isFocusModeActive) StartFocusMode();
+                    else if (_isFocusModePaused) ResumeFocusMode();
+                }
+                else
+                {
+                    if (_isFocusModeActive && !_isFocusModePaused) PauseFocusMode();
+                }
+            }
+
+            // 2. AI 陪伴逻辑
+            if (_isAiBusy || !settings.AiCompanionEnabled) return;
+            if (string.IsNullOrEmpty(currentApp) || currentApp == _lastForegroundApp) return;
+
+            _lastForegroundApp = currentApp;
+            await UpdateAiCompanionMessage(currentApp);
+        }
+
+        private string GetForegroundAppName()
+        {
+            try
+            {
+                IntPtr hwnd = GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return "";
+
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                if (pid == 0) return "";
+
+                using (var proc = Process.GetProcessById((int)pid))
+                {
+                    // 过滤掉灵动岛自己和一些系统组件
+                    string name = proc.ProcessName;
+                    if (name.Contains("WinIsland", StringComparison.OrdinalIgnoreCase) || 
+                        name.Contains("ShellExperienceHost", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("SearchHost", StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains("Taskbar", StringComparison.OrdinalIgnoreCase))
+                        return "";
+
+                    // 获取主窗口标题可能更直观，但由于一些应用标题变化频繁，这里先用进程名映射或直接显示
+                    return name;
+                }
+            }
+            catch { return ""; }
+        }
+
+        private async Task UpdateAiCompanionMessage(string appName)
+        {
+            var settings = GetSettings();
+            if (string.IsNullOrEmpty(settings.AiApiKey)) return;
+
+            _isAiBusy = true;
+            try
+            {
+                // 显示正在思考的样式（可选）
+                // TxtAiCompanionMessage.Text = "..."; 
+                
+                string prompt = settings.AiSystemPrompt.Replace("{AppName}", appName);
+                
+                var requestBody = new
+                {
+                    model = settings.AiModel,
+                    messages = new[]
+                    {
+                        new { role = "system", content = prompt },
+                        new { role = "user", content = $"我正在使用 {appName}。" }
+                    },
+                    max_tokens = 50,
+                    temperature = 0.7
+                };
+
+                string json = JsonSerializer.Serialize(requestBody);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                _httpClient ??= new HttpClient();
+                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", settings.AiApiKey);
+                
+                string url = settings.AiEndpoint;
+                if (!url.EndsWith("/chat/completions"))
+                {
+                    url = url.TrimEnd('/') + "/chat/completions";
+                }
+
+                var response = await _httpClient.PostAsync(url, content);
+                if (response.IsSuccessStatusCode)
+                {
+                    string resJson = await response.Content.ReadAsStringAsync();
+                    using (JsonDocument doc = JsonDocument.Parse(resJson))
+                    {
+                        string message = doc.RootElement
+                            .GetProperty("choices")[0]
+                            .GetProperty("message")
+                            .GetProperty("content")
+                            .GetString();
+
+                        if (!string.IsNullOrEmpty(message))
+                        {
+                            TxtAiCompanionMessage.Text = message.Trim();
+                            
+                            // 只有在非专注模式且没有通知时才显示 AI 面板
+                            UpdateAiCompanionVisibility();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"AI API Error: {ex.Message}");
+            }
+            finally
+            {
+                _isAiBusy = false;
+            }
+        }
+
+        private void UpdateAiCompanionVisibility()
+        {
+            var settings = GetSettings();
+            bool allowInFocus = _isFocusModeActive && settings.FocusModeAiEnabled;
+            bool allowedByState = !_isFocusModeActive || allowInFocus;
+
+            if (settings.AiCompanionEnabled && allowedByState && !_isNotificationActive && 
+                SystemStatsPanel.Visibility != Visibility.Visible && AlbumCover.Visibility != Visibility.Visible &&
+                FileStationPanel.Visibility != Visibility.Visible && DrinkWaterPanel.Visibility != Visibility.Visible &&
+                TodoPanel.Visibility != Visibility.Visible)
+            {
+                // In focus mode, we hide the FocusModePanel to show AI panel
+                if (_isFocusModeActive && allowInFocus)
+                {
+                    FocusModePanel.Visibility = Visibility.Collapsed;
+                }
+                AiCompanionPanel.Visibility = Visibility.Visible;
+                
+                // Adjust width for AI message
+                double requiredWidth = Math.Max(settings.StandbyWidth + 40, 200);
+                _widthSpring.Target = requiredWidth;
+            }
+            else
+            {
+                AiCompanionPanel.Visibility = Visibility.Collapsed;
+                // If in focus mode and AI is hidden, restore focus panel
+                if (_isFocusModeActive)
+                {
+                    FocusModePanel.Visibility = Visibility.Visible;
+                    _widthSpring.Target = Math.Max(settings.StandbyWidth, 140);
+                }
+            }
         }
     }
 }
