@@ -3,7 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using Hardcodet.Wpf.TaskbarNotification;
 
-namespace WinIsland
+namespace TopX
 {
     public partial class App : Application
     {
@@ -26,6 +26,7 @@ namespace WinIsland
                     ContextMenu = Resources["TrayMenu"] as ContextMenu,
                     IconSource = new BitmapImage(new Uri("pack://application:,,,/ico.ico"))
                 };
+                _trayIcon.TrayLeftMouseUp += (s, args) => Settings_Click(s, args);
             }
             catch
             {

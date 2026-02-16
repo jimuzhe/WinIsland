@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 
-namespace WinIsland
+namespace TopX
 {
     public class Spring
     {

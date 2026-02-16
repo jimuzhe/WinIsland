@@ -1,6 +1,6 @@
 using System;
 
-namespace WinIsland
+namespace TopX
 {
     public enum DrinkWaterMode
     {

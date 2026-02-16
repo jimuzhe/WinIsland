@@ -10,7 +10,7 @@ using MessageBox = System.Windows.MessageBox;
 using Application = System.Windows.Application;
 using System.Linq;
 
-namespace WinIsland
+namespace TopX
 {
     public partial class SettingsWindow : Window
     {

@@ -1,4 +1,4 @@
-<Window x:Class="WinIsland.SettingsWindow"
+<Window x:Class="TopX.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="topx 设置"
@@ -30,7 +30,7 @@
         <Color x:Key="CardAlt">#383838</Color>
         <Color x:Key="Stroke">#444444</Color>
         
-        <!-- WinIsland Accents -->
+        <!-- TopX Accents -->
         <Color x:Key="Accent">#00FFCC</Color> <!-- Teal/Cyan -->
         <Color x:Key="AccentDark">#00CC99</Color>
         <Color x:Key="Warm">#FFB347</Color>

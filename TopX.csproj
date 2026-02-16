@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -7,10 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyName>topx</AssemblyName>
-    <RootNamespace>WinIsland</RootNamespace>
-    <AssemblyTitle>topx</AssemblyTitle>
-    <AssemblyProduct>topx</AssemblyProduct>
+    <AssemblyName>TopX</AssemblyName>
+    <RootNamespace>TopX</RootNamespace>
+    <AssemblyTitle>TopX</AssemblyTitle>
+    <AssemblyProduct>TopX</AssemblyProduct>
     
     <!-- 优化发布体积 -->
     <PublishSingleFile>true</PublishSingleFile>

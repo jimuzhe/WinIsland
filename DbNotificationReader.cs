@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
-namespace WinIsland
+namespace TopX
 {
     public class NotificationItem
     {

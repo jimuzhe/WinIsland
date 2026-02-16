@@ -1,4 +1,4 @@
-<Window x:Class="WinIsland.MainWindow"
+<Window x:Class="TopX.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -104,7 +104,11 @@
                             </Path.Effect>
                         </Path>
                         <Border x:Name="NotificationAppIconBorder" Width="36" Height="36" CornerRadius="8" Background="#1E1E1E" Visibility="Collapsed">
-                            <Image x:Name="NotificationAppIcon" Stretch="UniformToFill"/>
+                            <Image x:Name="NotificationAppIcon" Stretch="UniformToFill">
+                                <Image.Clip>
+                                    <RectangleGeometry Rect="0,0,36,36" RadiusX="8" RadiusY="8"/>
+                                </Image.Clip>
+                            </Image>
                         </Border>
                     </Grid>
                     <TextBlock x:Name="NotificationText" Text="Device Connected" Foreground="White" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="400" TextAlignment="Left">
@@ -436,25 +440,23 @@
                 </Grid>
 
                 <!-- AI 陪伴助手区域 -->
-                <Grid x:Name="AiCompanionPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed" Margin="10,0">
+                <Grid x:Name="AiCompanionPanel" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" VerticalAlignment="Center" HorizontalAlignment="Stretch" Visibility="Collapsed" Margin="15,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <Grid Grid.Column="0" Width="20" Height="20" Margin="5,0,8,0" VerticalAlignment="Center">
-                        <Path Data="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z" Fill="#A8E6CF" Stretch="Uniform">
+                    <Border Grid.Column="0" Width="24" Height="24" Margin="3,0,10,0" Background="#22FFFFFF" CornerRadius="6" VerticalAlignment="Center">
+                        <Path Data="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z" 
+                              Fill="#A8E6CF" Stretch="Uniform" Margin="3">
                             <Path.Effect>
                                 <DropShadowEffect Color="#A8E6CF" BlurRadius="6" ShadowDepth="0" Opacity="0.5"/>
                             </Path.Effect>
                         </Path>
-                    </Grid>
+                    </Border>
 
-                    <TextBlock x:Name="TxtAiCompanionMessage" Grid.Column="1" Text="AI 助手就绪" Foreground="White" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="TxtAiCompanionMessage" Grid.Column="1" Text="AI 助手就绪" Foreground="White" FontSize="13" VerticalAlignment="Center" TextAlignment="Left" TextTrimming="CharacterEllipsis"/>
                 </Grid>
-
-
-
 
                 <!-- 左侧封面卡片 -->
                 <Image x:Name="AlbumCover" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Width="40" Height="40" Margin="10,4,0,0" VerticalAlignment="Top" Visibility="Collapsed" Stretch="UniformToFill">

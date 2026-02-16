@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace WinIsland
+namespace TopX
 {
     public class AppSettings
     {
